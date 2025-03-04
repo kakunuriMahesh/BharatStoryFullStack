@@ -1,15 +1,16 @@
 const express = require('express');
 const mongoose = require('mongoose');
+const cors = require('cors');
 const dotenv = require('dotenv');
 const storyRoutes = require('./routes/stories');
 
 dotenv.config();
 
 const app = express();
+app.use(cors({ origin: 'https://bharatstorybooks.com' }));
 app.use(express.json());
-app.use('/uploads', express.static('uploads')); // Serve uploaded images
+app.use('/uploads', express.static('uploads'));
 
-// MongoDB Connection
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
@@ -17,7 +18,6 @@ mongoose.connect(process.env.MONGO_URI, {
   .then(() => console.log('Connected to MongoDB'))
   .catch((err) => console.error('MongoDB connection error:', err));
 
-// Routes
 app.use('/api', storyRoutes);
 
-module.exports = app; // Export for Vercel
+module.exports = app;
