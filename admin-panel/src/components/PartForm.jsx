@@ -122,11 +122,7 @@ const PartForm = ({ stories, setStories }) => {
     });
 
     try {
-      console.log('Sending formData for addPart:');
-      for (let [key, value] of formData.entries()) {
-        console.log(`${key}:`, value);
-      }
-      const response = await axios.post('/api/parts', formData, {
+      const response = await axios.post('https://api.bharatstorybooks.com/api/parts', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       const updatedStories = stories.map((s) =>
@@ -182,11 +178,7 @@ const PartForm = ({ stories, setStories }) => {
     });
 
     try {
-      console.log('Sending formData for updatePart:');
-      for (let [key, value] of formData.entries()) {
-        console.log(`${key}:`, value);
-      }
-      const response = await axios.post('/api/parts', formData, {
+      const response = await axios.post('https://api.bharatstorybooks.com/api/parts', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       const updatedStories = stories.map((s) =>
@@ -210,7 +202,7 @@ const PartForm = ({ stories, setStories }) => {
   const deletePart = async (storyName, partId) => {
     try {
       await axios.delete(
-        `/api/parts/${stories.find((s) => s.name.en === storyName).id}/${partId}`
+        `https://api.bharatstorybooks.com/api/parts/${stories.find((s) => s.name.en === storyName).id}/${partId}`
       );
       const updatedStories = stories.map((s) =>
         s.name.en === storyName
