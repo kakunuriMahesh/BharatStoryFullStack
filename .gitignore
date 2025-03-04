@@ -1,0 +1,5 @@
+node_modules/
+admin-panel/dist/
+story-backend/uploads/
+.env
+

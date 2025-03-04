@@ -1,0 +1,17 @@
+{
+    "version": 2,
+    "builds": [
+      {
+        "src": "admin-panel/dist/**",
+        "use": "@vercel/static"
+      },
+      {
+        "src": "story-backend/server.js",
+        "use": "@vercel/node"
+      }
+    ],
+    "routes": [
+      { "src": "/api/(.*)", "dest": "story-backend/server.js" },
+      { "src": "/(.*)", "dest": "admin-panel/dist/$1" }
+    ]
+  }
