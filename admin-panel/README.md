@@ -338,3 +338,23 @@ Stories Fixed in each-card ✅
 //             ],
 //           },
 //         ], -->
+
+Story Search/Filter, Story Categories/Tags:
+these are not need for now.
+
+Edit Story,Delete Story,Multi-Language Support, User Authentication
+now we will focus on this features 
+
+Edit story,Delete Story: In previous we have only option to edit and delete for part now we focus on creating,updating and deleting story form also by giving an edit story details option in the my-stories page a side of each story name after opening the form we show the previous story name in different languages admin created and give the buttons update and delete if update story name for ex: Krishna to Sri Krishna we give a model to confirm yes are no after clicking on update by selecting yes we update in database if no go back to the form. if admin click on the Delete button we show a model that all parts for this story get deleted by deleting this story if admin click on yes we delet complete story and its parts respectively and show a model that succefully deleted the story.
+
+
+Multi-Language Support: In home page we have two button new story and add part for story if admin click on the one of the button we she a basic model in that model we ask what is the language of story/part as question and we give 3 check boxes telugu,english and hindi for each language by selecting the language we prepare form the admin can skip this form by clicking skip button in model. there is a chance admin can skip and select languages in the form so in the story and part form we give a check boxes by default english and telugu will select and show the both forms if hindi selects then show its form to update content with same fields here in each form story and part atleast on one language should opload in previous we are asking to upload english and telugu now we are making it flexible to uploading content note:in story admin updated in english and in part also content should update in english fields only dont give permission to check telugu and hindi languages until that story details updated in telugu and hindi because there is a chance if story name is given in english and after navigating to part form may chance to upload in telugu by selecting telugu check box we have to check before giving permission to pick language validate this properly. 
+
+
+User Authentication: new we are authenticating the admin its a admin panel before going to home page and adding content we have to ask admin to login in we show username and password and button for now use only login form because there is no option for signup for admin pannel store i will give you username and password that is Uday and 1@3$5^ store this in env file if its correct process for validation or you want me to create another mongodb connection to store this username and password. after validating admin navigate to home page and store the details in cookies for one day and remove them if admin came and open admin panel in next day again we should ask username and password. use jwt token if needed
+
+
+Accoring to this new version customize the backend scheme, paths to store data in database as well as frontend. give Total code with folder structure to update this latest version
+
+give pakages commands to install for new version. if i miss any thing i will add them in the process if required.
+
