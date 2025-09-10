@@ -117,7 +117,7 @@ const StoryForm = ({ addStory, storyToEdit, updateStory }) => {
             name="nameEn"
             value={formData.nameEn}
             onChange={handleChange}
-            className="border p-2 w-full"
+            className="border p-2 w-full text-black"
             disabled={!formData.languages.includes('en')}
           />
         </div>
@@ -128,7 +128,7 @@ const StoryForm = ({ addStory, storyToEdit, updateStory }) => {
             name="nameTe"
             value={formData.nameTe}
             onChange={handleChange}
-            className="border p-2 w-full"
+            className="border p-2 w-full text-black"
             disabled={!formData.languages.includes('te')}
           />
         </div>
@@ -139,7 +139,7 @@ const StoryForm = ({ addStory, storyToEdit, updateStory }) => {
             name="nameHi"
             value={formData.nameHi}
             onChange={handleChange}
-            className="border p-2 w-full"
+            className="border p-2 w-full text-black"
             disabled={!formData.languages.includes('hi')}
           />
         </div>

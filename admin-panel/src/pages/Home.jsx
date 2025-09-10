@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import LanguageModal from "../components/LanguageModal";
-import { PlusCircle } from "lucide-react";
+import { PlusCircle, Sparkles } from "lucide-react";
 
 const Home = () => {
   const navigate = useNavigate();
@@ -44,6 +44,20 @@ const Home = () => {
           </button>
         </div>
       </div>
+      <div className="absolute bottom-1 right-1 flex flex-row">
+  {/* Sparkles with blinking animation */}
+  <div className="animate-blink">
+    <Sparkles />
+  </div>
+
+  <button
+    className="bg-slate-900 text-white px-6 py-3 mt-3 rounded mx-auto animate-blink"
+    onClick={() => navigate('/ai')}
+  >
+    Create Story with AI
+  </button>
+</div>
+
     </div>
   );
 };
