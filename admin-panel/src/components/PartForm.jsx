@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { v4 as uuidv4 } from "uuid";
 import { useLocation, useNavigate } from "react-router-dom";
+import { ButtonLoader } from "./Loader";
 import {
   Upload,
   X,
@@ -26,6 +27,8 @@ const PartForm = ({ stories, addPart, updatePart, deletePart }) => {
   const [selectedStory, setSelectedStory] = useState("");
   const [isEditMode, setIsEditMode] = useState(false);
   const [images, setImages] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [previews, setPreviews] = useState({});
   const [parts, setParts] = useState([{ id: uuidv4() }]);
   const [partLanguages, setPartLanguages] = useState([]);
@@ -165,100 +168,114 @@ const PartForm = ({ stories, addPart, updatePart, deletePart }) => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const onSubmit = (data) => {
+  const onSubmit = async (data) => {
     if (!validateImages()) return;
 
-    const story = stories.find((s) => s.name.en === selectedStory);
-    const formData = new FormData();
-    formData.append("storyId", story.id);
-    if (partLanguages.includes("en")) {
-      formData.append("titleEn", data.titleEn || "");
-      formData.append("dateEn", data.dateEn || "");
-      formData.append("descriptionEn", data.descriptionEn || "");
-      formData.append("timeToReadEn", data.timeToReadEn || "");
-      formData.append("storyTypeEn", data.storyTypeEn || "");
-    }
-    if (partLanguages.includes("te")) {
-      formData.append("titleTe", data.titleTe || "");
-      formData.append("dateTe", data.dateTe || "");
-      formData.append("descriptionTe", data.descriptionTe || "");
-      formData.append("timeToReadTe", data.timeToReadTe || "");
-      formData.append("storyTypeTe", data.storyTypeTe || "");
-    }
-    if (partLanguages.includes("hi")) {
-      formData.append("titleHi", data.titleHi || "");
-      formData.append("dateHi", data.dateHi || "");
-      formData.append("descriptionHi", data.descriptionHi || "");
-      formData.append("timeToReadHi", data.timeToReadHi || "");
-      formData.append("storyTypeHi", data.storyTypeHi || "");
-    }
-    if (images.thumbnailImage) {
-      formData.append("thumbnailImage", images.thumbnailImage);
-    } else if (previews.thumbnailImage) {
-      formData.append("thumbnailImage", previews.thumbnailImage); // Existing URL
-    }
-    parts.forEach((part, index) => {
+    setLoading(true);
+    try {
+      const story = stories.find((s) => s.name.en === selectedStory);
+      const formData = new FormData();
+      formData.append("storyId", story.id);
       if (partLanguages.includes("en")) {
-        formData.append(`headingEn${index}`, data[`partHeadingEn${index}`] || "");
-        formData.append(`quoteEn${index}`, data[`partQuoteEn${index}`] || "");
-        formData.append(`textEn${index}`, data[`partTextEn${index}`] || "");
+        formData.append("titleEn", data.titleEn || "");
+        formData.append("dateEn", data.dateEn || "");
+        formData.append("descriptionEn", data.descriptionEn || "");
+        formData.append("timeToReadEn", data.timeToReadEn || "");
+        formData.append("storyTypeEn", data.storyTypeEn || "");
       }
       if (partLanguages.includes("te")) {
-        formData.append(`headingTe${index}`, data[`partHeadingTe${index}`] || "");
-        formData.append(`quoteTe${index}`, data[`partQuoteTe${index}`] || "");
-        formData.append(`textTe${index}`, data[`partTextTe${index}`] || "");
+        formData.append("titleTe", data.titleTe || "");
+        formData.append("dateTe", data.dateTe || "");
+        formData.append("descriptionTe", data.descriptionTe || "");
+        formData.append("timeToReadTe", data.timeToReadTe || "");
+        formData.append("storyTypeTe", data.storyTypeTe || "");
       }
       if (partLanguages.includes("hi")) {
-        formData.append(`headingHi${index}`, data[`partHeadingHi${index}`] || "");
-        formData.append(`quoteHi${index}`, data[`partQuoteHi${index}`] || "");
-        formData.append(`textHi${index}`, data[`partTextHi${index}`] || "");
+        formData.append("titleHi", data.titleHi || "");
+        formData.append("dateHi", data.dateHi || "");
+        formData.append("descriptionHi", data.descriptionHi || "");
+        formData.append("timeToReadHi", data.timeToReadHi || "");
+        formData.append("storyTypeHi", data.storyTypeHi || "");
       }
-      if (images[`partImage${index}`]) {
-        formData.append(`partImage${index}`, images[`partImage${index}`]);
-      } else if (previews[`partImage${index}`]) {
-        formData.append(`partImage${index}`, previews[`partImage${index}`]); // Existing URL
+      if (images.thumbnailImage) {
+        formData.append("thumbnailImage", images.thumbnailImage);
+      } else if (previews.thumbnailImage) {
+        formData.append("thumbnailImage", previews.thumbnailImage); // Existing URL
       }
-      formData.append(`id${index}`, part.id);
-    });
-    formData.append("languages", JSON.stringify(partLanguages));
+      parts.forEach((part, index) => {
+        if (partLanguages.includes("en")) {
+          formData.append(`headingEn${index}`, data[`partHeadingEn${index}`] || "");
+          formData.append(`quoteEn${index}`, data[`partQuoteEn${index}`] || "");
+          formData.append(`textEn${index}`, data[`partTextEn${index}`] || "");
+        }
+        if (partLanguages.includes("te")) {
+          formData.append(`headingTe${index}`, data[`partHeadingTe${index}`] || "");
+          formData.append(`quoteTe${index}`, data[`partQuoteTe${index}`] || "");
+          formData.append(`textTe${index}`, data[`partTextTe${index}`] || "");
+        }
+        if (partLanguages.includes("hi")) {
+          formData.append(`headingHi${index}`, data[`partHeadingHi${index}`] || "");
+          formData.append(`quoteHi${index}`, data[`partQuoteHi${index}`] || "");
+          formData.append(`textHi${index}`, data[`partTextHi${index}`] || "");
+        }
+        if (images[`partImage${index}`]) {
+          formData.append(`partImage${index}`, images[`partImage${index}`]);
+        } else if (previews[`partImage${index}`]) {
+          formData.append(`partImage${index}`, previews[`partImage${index}`]); // Existing URL
+        }
+        formData.append(`id${index}`, part.id);
+      });
+      formData.append("languages", JSON.stringify(partLanguages));
 
-    if (removeLanguages.length > 0) {
-      const confirmRemove = window.confirm(
-        `Do you want to remove the following languages from this part: ${removeLanguages.join(", ")}? ` +
-        "All content in these languages will be deleted from this part."
-      );
-      if (confirmRemove) {
-        formData.append("removeLanguages", JSON.stringify(removeLanguages));
-        formData.append("deleteContent", "true");
+      if (removeLanguages.length > 0) {
+        const confirmRemove = window.confirm(
+          `Do you want to remove the following languages from this part: ${removeLanguages.join(", ")}? ` +
+          "All content in these languages will be deleted from this part."
+        );
+        if (confirmRemove) {
+          formData.append("removeLanguages", JSON.stringify(removeLanguages));
+          formData.append("deleteContent", "true");
+        } else {
+          setPartLanguages((prev) => [...prev, ...removeLanguages]);
+          setRemoveLanguages([]);
+          return;
+        }
+      }
+
+      if (isEditMode) {
+        const partId = new URLSearchParams(location.search).get("partId");
+        formData.append("partId", partId);
+        await updatePart(selectedStory, partId, formData);
       } else {
-        setPartLanguages((prev) => [...prev, ...removeLanguages]);
-        setRemoveLanguages([]);
-        return;
+        await addPart(formData);
       }
+      reset();
+      setImages({});
+      setPreviews({});
+      setParts([{ id: uuidv4() }]);
+      setRemoveLanguages([]);
+      setImageErrors({});
+      navigate("/my-stories");
+    } catch (error) {
+      console.error('Error submitting part:', error);
+    } finally {
+      setLoading(false);
     }
-
-    if (isEditMode) {
-      const partId = new URLSearchParams(location.search).get("partId");
-      formData.append("partId", partId);
-      updatePart(selectedStory, partId, formData);
-    } else {
-      addPart(formData);
-    }
-    reset();
-    setImages({});
-    setPreviews({});
-    setParts([{ id: uuidv4() }]);
-    setRemoveLanguages([]);
-    setImageErrors({});
-    navigate("/my-stories");
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (window.confirm("Are you sure you want to delete this part?")) {
-      const partId = new URLSearchParams(location.search).get("partId");
-      const story = stories.find((s) => s.name.en === selectedStory);
-      deletePart(story.id, partId);
-      navigate("/my-stories");
+      setDeleteLoading(true);
+      try {
+        const partId = new URLSearchParams(location.search).get("partId");
+        const story = stories.find((s) => s.name.en === selectedStory);
+        await deletePart(story.id, partId);
+        navigate("/my-stories");
+      } catch (error) {
+        console.error('Error deleting part:', error);
+      } finally {
+        setDeleteLoading(false);
+      }
     }
   };
 
@@ -793,20 +810,22 @@ const PartForm = ({ stories, addPart, updatePart, deletePart }) => {
               </button>
 
               <div className="mt-6 flex gap-4">
-                <button
+                <ButtonLoader
                   type="submit"
+                  loading={loading}
                   className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2"
                 >
                   <Upload size={20} /> {isEditMode ? "Update Part" : "Add Part"}
-                </button>
+                </ButtonLoader>
                 {isEditMode && (
-                  <button
+                  <ButtonLoader
                     type="button"
+                    loading={deleteLoading}
                     onClick={handleDelete}
                     className="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded flex items-center gap-2"
                   >
                     <Trash size={20} /> Delete Part
-                  </button>
+                  </ButtonLoader>
                 )}
               </div>
             </form>

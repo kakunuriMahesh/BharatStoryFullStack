@@ -1,8 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { FaTrash } from 'react-icons/fa'; // For remove icon
+import { ButtonLoader } from './Loader';
 
 const StoryForm = ({ addStory, storyToEdit, updateStory }) => {
   console.log(addStory, 'addstory check');
+  const [loading, setLoading] = useState(false);
   const [formData, setFormData] = useState({
     nameEn: '',
     nameTe: '',
@@ -68,48 +70,65 @@ const StoryForm = ({ addStory, storyToEdit, updateStory }) => {
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleSubmit = (e) => {
+  const handleSubmit = async (e) => {
+    console.log('handleSubmit called, event:', e);
     e.preventDefault();
-    if (!validateForm()) return;
-
-    const data = new FormData();
-    data.append('nameEn', formData.nameEn);
-    data.append('nameTe', formData.nameTe);
-    data.append('nameHi', formData.nameHi);
-    data.append('languages', JSON.stringify(formData.languages));
-    if (typeof formData.storyCoverImage === 'string' && formData.storyCoverImage) {
-      data.append('storyCoverImage', formData.storyCoverImage); // Existing URL
-    } else if (formData.storyCoverImage) {
-      data.append('storyCoverImage', formData.storyCoverImage); // New file
-    }
-    if (typeof formData.bannerImge === 'string' && formData.bannerImge) {
-      data.append('bannerImge', formData.bannerImge); // Existing URL
-    } else if (formData.bannerImge) {
-      data.append('bannerImge', formData.bannerImge); // New file
+    e.stopPropagation();
+    
+    if (!validateForm()) {
+      console.log('Form validation failed');
+      return;
     }
 
-    if (storyToEdit) {
-      updateStory(storyToEdit.id, data);
-    } else {
-      addStory(data);
-    }
+    console.log('Form validation passed, proceeding with submission');
+    setLoading(true);
+    
+    try {
+      const data = new FormData();
+      data.append('nameEn', formData.nameEn);
+      data.append('nameTe', formData.nameTe);
+      data.append('nameHi', formData.nameHi);
+      data.append('languages', JSON.stringify(formData.languages));
+      if (typeof formData.storyCoverImage === 'string' && formData.storyCoverImage) {
+        data.append('storyCoverImage', formData.storyCoverImage); // Existing URL
+      } else if (formData.storyCoverImage) {
+        data.append('storyCoverImage', formData.storyCoverImage); // New file
+      }
+      if (typeof formData.bannerImge === 'string' && formData.bannerImge) {
+        data.append('bannerImge', formData.bannerImge); // Existing URL
+      } else if (formData.bannerImge) {
+        data.append('bannerImge', formData.bannerImge); // New file
+      }
 
-    setFormData({
-      nameEn: '',
-      nameTe: '',
-      nameHi: '',
-      languages: [],
-      storyCoverImage: '',
-      bannerImge: '',
-    });
-    setPreviews({ storyCoverImage: '', bannerImge: '' });
-    setErrors({});
+      console.log('Calling addStory function:', addStory);
+      if (storyToEdit) {
+        await updateStory(storyToEdit.id, data);
+      } else {
+        await addStory(data);
+      }
+
+      setFormData({
+        nameEn: '',
+        nameTe: '',
+        nameHi: '',
+        languages: [],
+        storyCoverImage: '',
+        bannerImge: '',
+      });
+      setPreviews({ storyCoverImage: '', bannerImge: '' });
+      setErrors({});
+      console.log('Form submission completed successfully');
+    } catch (error) {
+      console.error('Error submitting form:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <div className="p-4">
       <h2 className="text-2xl mb-4">{storyToEdit ? 'Edit Story' : 'Add Story'}</h2>
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
         <div>
           <label>English Name:</label>
           <input
@@ -213,9 +232,20 @@ const StoryForm = ({ addStory, storyToEdit, updateStory }) => {
           )}
           {errors.bannerImge && <p className="text-red-500">{errors.bannerImge}</p>}
         </div>
-        <button type="submit" className="bg-blue-500 text-white p-2 rounded">
+        <ButtonLoader
+          type="submit"
+          loading={loading}
+          className="bg-blue-500 text-white p-2 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+          onClick={(e) => {
+            console.log('Button clicked');
+            if (loading) {
+              e.preventDefault();
+              e.stopPropagation();
+            }
+          }}
+        >
           {storyToEdit ? 'Update Story' : 'Add Story'}
-        </button>
+        </ButtonLoader>
       </form>
     </div>
   );

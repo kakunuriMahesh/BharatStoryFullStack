@@ -3,11 +3,14 @@ import { useParams, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import Cookies from 'js-cookie';
 import { FaTrash } from 'react-icons/fa'; // For remove icon
+import { ButtonLoader } from './Loader';
 
 const EditStoryForm = ({ updateStory, deleteStory }) => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [story, setStory] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [deleteLoading, setDeleteLoading] = useState(false);
   const [formData, setFormData] = useState({
     nameEn: '',
     nameTe: '',
@@ -101,48 +104,62 @@ const EditStoryForm = ({ updateStory, deleteStory }) => {
     e.preventDefault();
     if (!validateForm()) return;
 
-    const data = new FormData();
-    data.append('nameEn', formData.nameEn);
-    data.append('nameTe', formData.nameTe);
-    data.append('nameHi', formData.nameHi);
-    data.append('languages', JSON.stringify(formData.languages));
-    if (typeof formData.storyCoverImage === 'string' && formData.storyCoverImage) {
-      data.append('storyCoverImage', formData.storyCoverImage); // Existing URL
-    } else if (formData.storyCoverImage) {
-      data.append('storyCoverImage', formData.storyCoverImage); // New file
-    }
-    if (typeof formData.bannerImge === 'string' && formData.bannerImge) {
-      data.append('bannerImge', formData.bannerImge); // Existing URL
-    } else if (formData.bannerImge) {
-      data.append('bannerImge', formData.bannerImge); // New file
-    }
-
-    if (removeLanguages.length > 0) {
-      const confirmRemove = window.confirm(
-        `Do you want to remove the following languages: ${removeLanguages.join(', ')}? ` +
-        'If you remove them, all content in these languages will be deleted from the story and its parts.'
-      );
-      if (confirmRemove) {
-        data.append('removeLanguages', JSON.stringify(removeLanguages));
-        data.append('deleteContent', 'true');
-        await updateStory(id, data);
-        setRemoveLanguages([]); // Reset after successful update
-      } else {
-        setFormData((prev) => ({ ...prev, languages: story.languages }));
-        setRemoveLanguages([]);
-        return;
+    setLoading(true);
+    try {
+      const data = new FormData();
+      data.append('nameEn', formData.nameEn);
+      data.append('nameTe', formData.nameTe);
+      data.append('nameHi', formData.nameHi);
+      data.append('languages', JSON.stringify(formData.languages));
+      if (typeof formData.storyCoverImage === 'string' && formData.storyCoverImage) {
+        data.append('storyCoverImage', formData.storyCoverImage); // Existing URL
+      } else if (formData.storyCoverImage) {
+        data.append('storyCoverImage', formData.storyCoverImage); // New file
       }
-    } else {
-      await updateStory(id, data);
-    }
+      if (typeof formData.bannerImge === 'string' && formData.bannerImge) {
+        data.append('bannerImge', formData.bannerImge); // Existing URL
+      } else if (formData.bannerImge) {
+        data.append('bannerImge', formData.bannerImge); // New file
+      }
 
-    navigate('/'); // Redirect after update
+      if (removeLanguages.length > 0) {
+        const confirmRemove = window.confirm(
+          `Do you want to remove the following languages: ${removeLanguages.join(', ')}? ` +
+          'If you remove them, all content in these languages will be deleted from the story and its parts.'
+        );
+        if (confirmRemove) {
+          data.append('removeLanguages', JSON.stringify(removeLanguages));
+          data.append('deleteContent', 'true');
+          await updateStory(id, data);
+          setRemoveLanguages([]); // Reset after successful update
+        } else {
+          setFormData((prev) => ({ ...prev, languages: story.languages }));
+          setRemoveLanguages([]);
+          return;
+        }
+      } else {
+        await updateStory(id, data);
+      }
+
+      navigate('/'); // Redirect after update
+    } catch (error) {
+      console.error('Error updating story:', error);
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const handleDelete = () => {
+  const handleDelete = async () => {
     if (window.confirm('Are you sure you want to delete this story?')) {
-      deleteStory(id);
-      navigate('/');
+      setDeleteLoading(true);
+      try {
+        await deleteStory(id);
+        navigate('/');
+      } catch (error) {
+        console.error('Error deleting story:', error);
+      } finally {
+        setDeleteLoading(false);
+      }
     }
   };
 
@@ -255,16 +272,21 @@ const EditStoryForm = ({ updateStory, deleteStory }) => {
           )}
           {errors.bannerImge && <p className="text-red-500">{errors.bannerImge}</p>}
         </div>
-        <button type="submit" className="bg-blue-500 text-white p-2 rounded">
+        <ButtonLoader
+          type="submit"
+          loading={loading}
+          className="bg-blue-500 text-white p-2 rounded disabled:opacity-50 disabled:cursor-not-allowed"
+        >
           Update Story
-        </button>
-        <button
+        </ButtonLoader>
+        <ButtonLoader
           type="button"
+          loading={deleteLoading}
           onClick={handleDelete}
-          className="bg-red-500 text-white p-2 rounded ml-2"
+          className="bg-red-500 text-white p-2 rounded ml-2 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           Delete Story
-        </button>
+        </ButtonLoader>
       </form>
     </div>
   );

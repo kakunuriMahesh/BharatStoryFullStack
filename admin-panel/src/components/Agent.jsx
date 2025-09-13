@@ -6,8 +6,9 @@ import StoryForm from './StoryForm';
 import Modal from "./Modal";
 import { useForm } from "react-hook-form";
 import { Languages, Calendar, Clock, Type, Image as ImageIcon, X } from "lucide-react";
+import { ButtonLoader, InlineLoader } from "./Loader";
 
-const Agent = ({addStory, stories }) => {
+const Agent = ({addStory, addPart, stories }) => {
   const { register, handleSubmit, formState: { errors }, setValue } = useForm();
   const [formData, setFormData] = useState({
     storyContent: "",
@@ -27,6 +28,7 @@ const Agent = ({addStory, stories }) => {
   });
   const [selectedStory, setSelectedStory] = useState("");
   const [partLanguages, setPartLanguages] = useState([]);
+  const [storyLanguages, setStoryLanguages] = useState([]);
   const [selectedLanguage, setSelectedLanguage] = useState("en");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [sections, setSections] = useState([]);
@@ -262,6 +264,8 @@ const Agent = ({addStory, stories }) => {
   const loadDraft = (draft) => {
     setFormData(draft.formData);
     setSections(draft.sections);
+    setPartLanguages(draft.formData.partLanguages || ["en"]);
+    setSelectedLanguage(draft.formData.partLanguages?.[0] || "en");
     setShowDrafts(false);
     // Set form values for card details
     setValue("titleEn", draft.formData.title.en || "");
@@ -441,6 +445,30 @@ const Agent = ({addStory, stories }) => {
     }
   };
 
+  // Toggle part language
+  const togglePartLanguage = (language) => {
+    setPartLanguages((prev) => {
+      let newLanguages;
+      if (prev.includes(language)) {
+        // Prevent unchecking the last language
+        if (prev.length === 1) {
+          setError("At least one language must be selected.");
+          return prev;
+        }
+        newLanguages = prev.filter((lang) => lang !== language);
+      } else {
+        newLanguages = [...prev, language];
+      }
+
+      // Update selectedLanguage if the current one is deselected
+      if (!newLanguages.includes(selectedLanguage)) {
+        setSelectedLanguage(newLanguages[0] || "en");
+      }
+
+      return newLanguages;
+    });
+  };
+
   // Function to call the n8n AI agent
   const triggerAIAgent = async (data) => {
     if (!data.storyContent.trim()) {
@@ -451,11 +479,15 @@ const Agent = ({addStory, stories }) => {
       setThumbnailError("Thumbnail Image is required");
       return;
     }
+    if (partLanguages.length === 0) {
+      setError("At least one language must be selected for this part.");
+      return;
+    }
 
     // Check if there are existing sections to save as draft
     if (sections.length > 0) {
       setPendingDraftData({
-        formData: { ...formData, ...data, thumbnailImage: thumbnailPreview },
+        formData: { ...formData, ...data, thumbnailImage: thumbnailPreview, partLanguages },
         sections: sections,
       });
       setShowDraftConfirm(true);
@@ -562,7 +594,12 @@ const Agent = ({addStory, stories }) => {
       setIsModalOpen(true);
     } else {
       const selected = stories.find((s) => s.name.en === value);
-      setPartLanguages(selected?.languages || ["en", "te"]);
+      const availableLanguages = [];
+      if (selected?.name.en) availableLanguages.push("en");
+      if (selected?.name.te) availableLanguages.push("te");
+      if (selected?.name.hi) availableLanguages.push("hi");
+      setStoryLanguages(availableLanguages);
+      setPartLanguages(availableLanguages);
       setSelectedLanguage("en");
     }
   };
@@ -573,8 +610,9 @@ const Agent = ({addStory, stories }) => {
   };
 
   const handleAddStory = (formData) => {
-    addStory(formData);
-    handleModalClose();
+    alert("formData story", formData);
+    // addStory(formData);
+    // handleModalClose();
   };
 
   return (
@@ -605,15 +643,49 @@ const Agent = ({addStory, stories }) => {
             </select>
           </div>
 
-          {/* Modal for Story Form */}
-          {isModalOpen && (
-            <Modal onClose={handleModalClose}>
-              <StoryForm addStory={handleAddStory} />
-            </Modal>
-          )}
 
-          {selectedStory && partLanguages.length > 0 && (
+          {selectedStory && storyLanguages.length > 0 && (
             <>
+              <div className="mb-4">
+                <label className="block font-semibold text-gray-300 mb-2">Languages for this Part:</label>
+                <div className="flex space-x-4">
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={partLanguages.includes("en")}
+                      onChange={() => togglePartLanguage("en")}
+                      disabled={!storyLanguages.includes("en")}
+                      className="mr-2"
+                    />
+                    English
+                  </label>
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={partLanguages.includes("te")}
+                      onChange={() => togglePartLanguage("te")}
+                      disabled={!storyLanguages.includes("te")}
+                      className="mr-2"
+                    />
+                    Telugu
+                  </label>
+                  <label className="flex items-center">
+                    <input
+                      type="checkbox"
+                      checked={partLanguages.includes("hi")}
+                      onChange={() => togglePartLanguage("hi")}
+                      disabled={!storyLanguages.includes("hi")}
+                      className="mr-2"
+                    />
+                    Hindi
+                  </label>
+                </div>
+                {!storyLanguages.includes("hi") && (
+                  <p className="text-sm text-gray-500 mt-2">
+                    To add parts in Hindi, edit the story to include a Hindi title.
+                  </p>
+                )}
+              </div>
               <h3 className="text-xl font-semibold mb-4 text-white">Card Details</h3>
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 {partLanguages.includes("en") && (
@@ -622,7 +694,7 @@ const Agent = ({addStory, stories }) => {
                     <div className="relative">
                       <Languages size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
-                        {...register("titleEn", { required: "Title (English) is required" })}
+                        {...register("titleEn", { required: partLanguages.includes("en") ? "Title (English) is required" : false })}
                         className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         onChange={(e) => handleInputChange(e, "title", "en")}
                       />
@@ -635,7 +707,7 @@ const Agent = ({addStory, stories }) => {
                       <Calendar size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
                         type="date"
-                        {...register("dateEn", { required: "Date (English) is required" })}
+                        {...register("dateEn", { required: partLanguages.includes("en") ? "Date (English) is required" : false })}
                         className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         onChange={(e) => handleInputChange(e, "date", "en")}
                       />
@@ -647,7 +719,7 @@ const Agent = ({addStory, stories }) => {
                     <div className="relative">
                       <Type size={20} className="absolute left-2 top-4 text-gray-400" />
                       <textarea
-                        {...register("descriptionEn", { required: "Description (English) is required" })}
+                        {...register("descriptionEn", { required: partLanguages.includes("en") ? "Description (English) is required" : false })}
                         className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 h-24"
                         onChange={(e) => handleInputChange(e, "description", "en")}
                       />
@@ -659,7 +731,7 @@ const Agent = ({addStory, stories }) => {
                     <div className="relative">
                       <Clock size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
-                        {...register("timeToReadEn", { required: "Time to Read (English) is required" })}
+                        {...register("timeToReadEn", { required: partLanguages.includes("en") ? "Time to Read (English) is required" : false })}
                         className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         onChange={(e) => handleInputChange(e, "timeToRead", "en")}
                       />
@@ -671,7 +743,7 @@ const Agent = ({addStory, stories }) => {
                     <div className="relative">
                       <Type size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
-                        {...register("storyTypeEn", { required: "Story Type (English) is required" })}
+                        {...register("storyTypeEn", { required: partLanguages.includes("en") ? "Story Type (English) is required" : false })}
                         className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         onChange={(e) => handleInputChange(e, "storyType", "en")}
                       />
@@ -687,7 +759,7 @@ const Agent = ({addStory, stories }) => {
                     <div className="relative">
                       <Languages size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
-                        {...register("titleTe", { required: "Title (Telugu) is required" })}
+                        {...register("titleTe", { required: partLanguages.includes("te") ? "Title (Telugu) is required" : false })}
                         className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         onChange={(e) => handleInputChange(e, "title", "te")}
                       />
@@ -700,7 +772,7 @@ const Agent = ({addStory, stories }) => {
                       <Calendar size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
                         type="date"
-                        {...register("dateTe", { required: "Date (Telugu) is required" })}
+                        {...register("dateTe", { required: partLanguages.includes("te") ? "Date (Telugu) is required" : false })}
                         className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         onChange={(e) => handleInputChange(e, "date", "te")}
                       />
@@ -712,7 +784,7 @@ const Agent = ({addStory, stories }) => {
                     <div className="relative">
                       <Type size={20} className="absolute left-2 top-4 text-gray-400" />
                       <textarea
-                        {...register("descriptionTe", { required: "Description (Telugu) is required" })}
+                        {...register("descriptionTe", { required: partLanguages.includes("te") ? "Description (Telugu) is required" : false })}
                         className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 h-24"
                         onChange={(e) => handleInputChange(e, "description", "te")}
                       />
@@ -724,7 +796,7 @@ const Agent = ({addStory, stories }) => {
                     <div className="relative">
                       <Clock size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
-                        {...register("timeToReadTe", { required: "Time to Read (Telugu) is required" })}
+                        {...register("timeToReadTe", { required: partLanguages.includes("te") ? "Time to Read (Telugu) is required" : false })}
                         className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         onChange={(e) => handleInputChange(e, "timeToRead", "te")}
                       />
@@ -736,7 +808,7 @@ const Agent = ({addStory, stories }) => {
                     <div className="relative">
                       <Type size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
-                        {...register("storyTypeTe", { required: "Story Type (Telugu) is required" })}
+                        {...register("storyTypeTe", { required: partLanguages.includes("te") ? "Story Type (Telugu) is required" : false })}
                         className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         onChange={(e) => handleInputChange(e, "storyType", "te")}
                       />
@@ -752,7 +824,7 @@ const Agent = ({addStory, stories }) => {
                     <div className="relative">
                       <Languages size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
-                        {...register("titleHi", { required: "Title (Hindi) is required" })}
+                        {...register("titleHi", { required: partLanguages.includes("hi") ? "Title (Hindi) is required" : false })}
                         className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         onChange={(e) => handleInputChange(e, "title", "hi")}
                       />
@@ -765,7 +837,7 @@ const Agent = ({addStory, stories }) => {
                       <Calendar size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
                         type="date"
-                        {...register("dateHi", { required: "Date (Hindi) is required" })}
+                        {...register("dateHi", { required: partLanguages.includes("hi") ? "Date (Hindi) is required" : false })}
                         className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         onChange={(e) => handleInputChange(e, "date", "hi")}
                       />
@@ -777,7 +849,7 @@ const Agent = ({addStory, stories }) => {
                     <div className="relative">
                       <Type size={20} className="absolute left-2 top-4 text-gray-400" />
                       <textarea
-                        {...register("descriptionHi", { required: "Description (Hindi) is required" })}
+                        {...register("descriptionHi", { required: partLanguages.includes("hi") ? "Description (Hindi) is required" : false })}
                         className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 h-24"
                         onChange={(e) => handleInputChange(e, "description", "hi")}
                       />
@@ -789,7 +861,7 @@ const Agent = ({addStory, stories }) => {
                     <div className="relative">
                       <Clock size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
-                        {...register("timeToReadHi", { required: "Time to Read (Hindi) is required" })}
+                        {...register("timeToReadHi", { required: partLanguages.includes("hi") ? "Time to Read (Hindi) is required" : false })}
                         className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         onChange={(e) => handleInputChange(e, "timeToRead", "hi")}
                       />
@@ -801,7 +873,7 @@ const Agent = ({addStory, stories }) => {
                     <div className="relative">
                       <Type size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
-                        {...register("storyTypeHi", { required: "Story Type (Hindi) is required" })}
+                        {...register("storyTypeHi", { required: partLanguages.includes("hi") ? "Story Type (Hindi) is required" : false })}
                         className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                         onChange={(e) => handleInputChange(e, "storyType", "hi")}
                       />
@@ -915,17 +987,13 @@ const Agent = ({addStory, stories }) => {
             </div>
 
             <div className="flex gap-4">
-              <button
+              <ButtonLoader
                 type="submit"
-                className={`flex-1 py-3 px-6 rounded-lg font-semibold transition-colors duration-200 ${
-                  loading
-                    ? "bg-gray-600 cursor-not-allowed"
-                    : "bg-indigo-600 hover:bg-indigo-700 text-white"
-                }`}
-                disabled={loading}
+                loading={loading}
+                className="flex-1 py-3 px-6 rounded-lg font-semibold transition-colors duration-200 bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? "Processing..." : "Submit Story"}
-              </button>
+                Submit Story
+              </ButtonLoader>
               <button
                 type="button"
                 className="flex-1 py-3 px-6 bg-gray-700 hover:bg-gray-600 rounded-lg font-semibold text-white transition-colors duration-200"
@@ -936,6 +1004,13 @@ const Agent = ({addStory, stories }) => {
             </div>
           </div>
         </form>
+
+        {/* Modal for Story Form - Moved outside form to prevent nesting */}
+        {isModalOpen && (
+          <Modal onClose={handleModalClose}>
+            <StoryForm addStory={addStory} />
+          </Modal>
+        )}
 
         {sections.length > 0 && (
           <div className="mb-4">
@@ -954,11 +1029,14 @@ const Agent = ({addStory, stories }) => {
           </div>
         )}
 
-        {loading && (
-          <div className="text-center text-gray-300 text-lg animate-pulse">
-            Generating content with AI agent...
-          </div>
-        )}
+        <InlineLoader 
+          loading={loading}
+          fallback={
+            <div className="text-center text-gray-300 text-lg">
+              <InlineLoader loading={loading} text="Generating content with AI agent..." />
+            </div>
+          }
+        />
         {error && (
           <div className="bg-red-900 text-red-200 p-4 rounded-lg mb-8 text-center">
             {error}
@@ -1233,6 +1311,11 @@ const Agent = ({addStory, stories }) => {
             onClose={closePreview}
             outputFormat={formData.outputFormat}
             language={selectedLanguage}
+            formData={formData}
+            selectedStory={selectedStory}
+            partLanguages={partLanguages}
+            stories={stories}
+            onSubmitStory={addPart}
           />
         )}
 

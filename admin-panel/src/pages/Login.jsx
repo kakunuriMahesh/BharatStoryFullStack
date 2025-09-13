@@ -2,15 +2,19 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import Cookies from 'js-cookie';
 import { useNavigate } from 'react-router-dom';
+import { ButtonLoader } from '../components/Loader';
 
 const Login = ({ setIsAuthenticated }) => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setLoading(true);
+    setError('');
     try {
       console.log('Attempting login with:', { username, password });
       const response = await axios.post(`${import.meta.env.VITE_API_URL}/auth/login`, { username, password });
@@ -21,6 +25,8 @@ const Login = ({ setIsAuthenticated }) => {
     } catch (err) {
       console.error('Login error:', err.response?.data || err.message);
       setError(err.response?.data?.error || 'Login failed');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -43,9 +49,13 @@ const Login = ({ setIsAuthenticated }) => {
           placeholder="Password"
           className="border p-2 mb-4 w-full"
         />
-        <button type="submit" className="bg-blue-500 text-white px-4 py-2 rounded w-full">
+        <ButtonLoader 
+          type="submit" 
+          loading={loading}
+          className="bg-blue-500 text-white px-4 py-2 rounded w-full disabled:opacity-50"
+        >
           Login
-        </button>
+        </ButtonLoader>
       </form>
     </div>
   );

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import emailjs from "@emailjs/browser";
 import { use } from "react";
+import { ButtonLoader, InlineLoader } from "../components/Loader";
 
 const NotifySubscribers = () => {
   const [subject, setSubject] = useState("");
@@ -147,17 +148,13 @@ console.log("API response status:", response);
             required
           />
         </div>
-        <button
+        <ButtonLoader
           type="submit"
-          disabled={isLoading}
-          className={`py-2 px-4 rounded-md text-white ${
-            isLoading
-              ? "bg-gray-500 cursor-not-allowed"
-              : "bg-blue-600 hover:bg-blue-700"
-          }`}
+          loading={isLoading}
+          className="py-2 px-4 rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          {isLoading ? "Sending..." : "Send Notifications"}
-        </button>
+          Send Notifications
+        </ButtonLoader>
       </form>
       {status && <p className="mt-4 text-green-600">{status}</p>}
       {error && <p className="mt-4 text-red-600">{error}</p>}

@@ -1,8 +1,9 @@
 // // FIXME:
 
 import React, { useState, useRef, useEffect } from 'react';
+import { v4 as uuidv4 } from 'uuid';
 
-const Preview = ({ sections, onClose, outputFormat, language }) => {
+const Preview = ({ sections, onClose, outputFormat, language, formData, selectedStory, partLanguages, stories, onSubmitStory }) => {
   const [fontSize, setFontSize] = useState(16);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voicesLoaded, setVoicesLoaded] = useState(false);
@@ -49,6 +50,88 @@ const Preview = ({ sections, onClose, outputFormat, language }) => {
 
   const increaseFontSize = () => setFontSize(prev => Math.min(prev + 2, 24));
   const decreaseFontSize = () => setFontSize(prev => Math.max(prev - 2, 12));
+
+  const handleSubmitStory = () => {
+    if (!selectedStory || !formData) {
+      alert('Please select a story and ensure all required data is available.');
+      return;
+    }
+
+    // Convert sections to part format
+    const partData = sections.map((section, index) => ({
+      id: uuidv4(),
+      heading: {
+        en: section.heading?.en || '',
+        te: section.heading?.te || '',
+        hi: section.heading?.hi || ''
+      },
+      quote: {
+        en: section.quote?.en || '',
+        te: section.quote?.te || '',
+        hi: section.quote?.hi || ''
+      },
+      text: {
+        en: section.sectionText?.en || section.oneLineText?.en || '',
+        te: section.sectionText?.te || section.oneLineText?.te || '',
+        hi: section.sectionText?.hi || section.oneLineText?.hi || ''
+      },
+      image: section.image_gen || ''
+    }));
+
+    // Create FormData for submission
+    const submitData = new FormData();
+    
+    // Find the selected story to get its ID
+    const story = stories?.find(s => s.name.en === selectedStory);
+    if (!story) {
+      alert('Selected story not found.');
+      return;
+    }
+    
+    submitData.append('storyId', story.id);
+    
+    // Add card details for each language
+    partLanguages.forEach(lang => {
+      const langKey = lang.charAt(0).toUpperCase() + lang.slice(1);
+      submitData.append(`title${langKey}`, formData.title[lang] || '');
+      submitData.append(`date${langKey}`, formData.date[lang] || '');
+      submitData.append(`description${langKey}`, formData.description[lang] || '');
+      submitData.append(`timeToRead${langKey}`, formData.timeToRead[lang] || '');
+      submitData.append(`storyType${langKey}`, formData.storyType[lang] || '');
+    });
+    
+    // Add thumbnail image
+    if (formData.thumbnailImage) {
+      submitData.append('thumbnailImage', formData.thumbnailImage);
+    } else if (formData.thumbnailPreview) {
+      submitData.append('thumbnailImage', formData.thumbnailPreview);
+    }
+    
+    // Add part data for each language
+    partData.forEach((part, index) => {
+      partLanguages.forEach(lang => {
+        const langKey = lang.charAt(0).toUpperCase() + lang.slice(1);
+        submitData.append(`heading${langKey}${index}`, part.heading[lang] || '');
+        submitData.append(`quote${langKey}${index}`, part.quote[lang] || '');
+        submitData.append(`text${langKey}${index}`, part.text[lang] || '');
+      });
+      
+      // Add image for this part
+      if (part.image) {
+        submitData.append(`partImage${index}`, part.image);
+      }
+      
+      submitData.append(`id${index}`, part.id);
+    });
+    
+    submitData.append('languages', JSON.stringify(partLanguages));
+    
+    // Call the submit function
+    onSubmitStory(submitData);
+    
+    // Close the preview after successful submission
+    onClose();
+  };
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 backdrop-blur-sm flex items-center justify-center z-50">
@@ -140,7 +223,7 @@ const Preview = ({ sections, onClose, outputFormat, language }) => {
             <button
               onClick={toggleSpeech}
               disabled={!sections.length || !voicesLoaded}
-              className={`w-full py-3 mt-6 rounded-lg font-semibold text-white transition-colors duration-200 ${
+              className={`flex-1 py-3 mt-6 rounded-lg font-semibold text-white transition-colors duration-200 ${
                 !sections.length || !voicesLoaded
                   ? 'bg-gray-600 cursor-not-allowed'
                   : isSpeaking
@@ -153,6 +236,12 @@ const Preview = ({ sections, onClose, outputFormat, language }) => {
                 : isSpeaking
                 ? "Stop Reading"
                 : "Read Aloud"}
+            </button>
+            <button
+              onClick={handleSubmitStory}
+              className="flex-1 py-3 mt-6 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors duration-200"
+            >
+              Submit Story
             </button>
           </div>
         )}
