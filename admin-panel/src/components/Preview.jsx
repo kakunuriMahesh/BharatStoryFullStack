@@ -2,15 +2,19 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { v4 as uuidv4 } from 'uuid';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 const Preview = ({ sections, onClose, outputFormat, language, formData, selectedStory, partLanguages, stories, onSubmitStory }) => {
   const [fontSize, setFontSize] = useState(16);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voicesLoaded, setVoicesLoaded] = useState(false);
   const [imagesLoaded, setImagesLoaded] = useState({});
+  const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
   const imageRefs = useRef([]);
   const paraRefs = useRef([]);
   const speechRef = useRef(null);
+  const previewRef = useRef(null);
 
   useEffect(() => {
     // Initialize speech synthesis
@@ -50,6 +54,168 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
 
   const increaseFontSize = () => setFontSize(prev => Math.min(prev + 2, 24));
   const decreaseFontSize = () => setFontSize(prev => Math.max(prev - 2, 12));
+
+  const downloadAsPDF = async () => {
+    if (!previewRef.current) return;
+    
+    setIsGeneratingPDF(true);
+    
+    try {
+      // Create PDF
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = 210; // A4 width in mm
+      const pageHeight = 297; // A4 height in mm
+      const margin = 20;
+      const contentWidth = pageWidth - (2 * margin);
+      let currentY = margin;
+      
+      // Add title
+      pdf.setFontSize(24);
+      pdf.setTextColor(255, 255, 255);
+      pdf.setFillColor(31, 41, 55); // Gray-800 background
+      pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+      
+      pdf.setFontSize(24);
+      pdf.setTextColor(255, 255, 255);
+      pdf.text('Story Preview', pageWidth / 2, currentY, { align: 'center' });
+      currentY += 20;
+      
+      // Process each section
+      for (let index = 0; index < sections.length; index++) {
+        const section = sections[index];
+        // Check if we need a new page
+        if (currentY > pageHeight - 100) {
+          pdf.addPage();
+          pdf.setFillColor(31, 41, 55);
+          pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+          currentY = margin;
+        }
+        
+        // Add section number and heading
+        if (outputFormat?.includeHeadings || section.heading[language]) {
+          pdf.setFontSize(18);
+          pdf.setTextColor(129, 140, 248); // Indigo-400
+          const headingText = `${index + 1}) ${section.heading[language] || ""}`;
+          pdf.text(headingText, margin, currentY);
+          currentY += 10;
+          
+          // Add quote if included
+          if (outputFormat?.includeQuotes && section.quote[language]) {
+            pdf.setFontSize(12);
+            pdf.setTextColor(200, 200, 200);
+            pdf.text(section.quote[language], margin, currentY);
+            currentY += 8;
+          }
+        }
+        
+        // Add image if included
+        if (outputFormat?.includeImageSuggestions && section.image_gen) {
+          try {
+            // Check if we have enough space for image
+            const imageHeight = 80; // Fixed height for images
+            if (currentY + imageHeight > pageHeight - margin) {
+              pdf.addPage();
+              pdf.setFillColor(31, 41, 55);
+              pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+              currentY = margin;
+            }
+            
+            // Try to load and add the actual image
+            try {
+              const img = new Image();
+              img.crossOrigin = 'anonymous';
+              
+              const imageLoaded = await new Promise((resolve, reject) => {
+                img.onload = () => resolve(img);
+                img.onerror = () => reject(new Error('Image load failed'));
+                img.src = section.image_gen;
+              });
+              
+              // Calculate image dimensions to fit content width
+              const imgAspectRatio = imageLoaded.width / imageLoaded.height;
+              const imgWidth = contentWidth;
+              const imgHeight = imgWidth / imgAspectRatio;
+              const finalHeight = Math.min(imgHeight, 80); // Max height of 80mm
+              
+              // Add image to PDF
+              pdf.addImage(imageLoaded, 'JPEG', margin, currentY, contentWidth, finalHeight);
+              currentY += finalHeight + 10;
+              
+            } catch (imgError) {
+              console.log('Could not load image, adding placeholder:', imgError);
+              
+              // Add image placeholder
+              pdf.setFillColor(75, 85, 99); // Gray-600
+              pdf.rect(margin, currentY, contentWidth, imageHeight, 'F');
+              
+              // Add image text
+              pdf.setFontSize(10);
+              pdf.setTextColor(255, 255, 255);
+              pdf.text('Image: ' + (section.heading[language] || 'Section image'), margin + 5, currentY + 15);
+              currentY += imageHeight + 10;
+            }
+          } catch (error) {
+            console.log('Could not add image:', error);
+            currentY += 10;
+          }
+        }
+        
+        // Add text content
+        const textContent = !outputFormat?.oneLineText 
+          ? (section.sectionText[language] || section.oneLineText[language] || "")
+          : (section.oneLineText[language] || "");
+        
+        if (textContent) {
+          pdf.setFontSize(14);
+          pdf.setTextColor(229, 231, 235); // Gray-200
+          
+          // Split text into lines that fit the page width
+          const lines = pdf.splitTextToSize(textContent, contentWidth);
+          
+          // Check if we need a new page for the text
+          const lineHeight = 6; // Line height in mm
+          const textHeight = lines.length * lineHeight;
+          
+          if (currentY + textHeight > pageHeight - margin - 20) {
+            pdf.addPage();
+            pdf.setFillColor(31, 41, 55);
+            pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+            currentY = margin;
+          }
+          
+          // Add the text with proper line spacing
+          pdf.text(lines, margin, currentY, { lineHeightFactor: 1.2 });
+          currentY += textHeight + 15;
+        }
+        
+        // Add spacing between sections
+        currentY += 15;
+      }
+      
+      // Add page numbers
+      const totalPages = pdf.internal.getNumberOfPages();
+      for (let i = 1; i <= totalPages; i++) {
+        pdf.setPage(i);
+        pdf.setFontSize(10);
+        pdf.setTextColor(100, 100, 100);
+        pdf.text(
+          `Page ${i} of ${totalPages}`,
+          pageWidth - 20,
+          pageHeight - 10
+        );
+      }
+      
+      // Download the PDF
+      const fileName = `story-preview-${new Date().toISOString().split('T')[0]}.pdf`;
+      pdf.save(fileName);
+      
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Error generating PDF. Please try again.');
+    } finally {
+      setIsGeneratingPDF(false);
+    }
+  };
 
   const handleSubmitStory = () => {
     if (!selectedStory || !formData) {
@@ -164,7 +330,7 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
           </div>
         </div>
 
-        <div className="space-y-6">
+        <div ref={previewRef} className="space-y-6">
           {sections.map((section, index) => (
             <div key={index} className="bg-gray-700 rounded-lg p-4">
               {(outputFormat?.includeHeadings || section.heading[language]) && (
@@ -218,28 +384,43 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
           ))}
         </div>
 
-        {sections.length > 0 && voicesLoaded && (
-          <div className='flex justify-center items-center gap-3'>
-            <button
-              onClick={toggleSpeech}
-              disabled={!sections.length || !voicesLoaded}
-              className={`flex-1 py-3 mt-6 rounded-lg font-semibold text-white transition-colors duration-200 ${
-                !sections.length || !voicesLoaded
-                  ? 'bg-gray-600 cursor-not-allowed'
-                  : isSpeaking
-                  ? 'bg-red-600 hover:bg-red-700'
-                  : 'bg-indigo-600 hover:bg-indigo-700'
-              }`}
-            >
-              {!sections.length || !voicesLoaded
-                ? "Loading..."
-                : isSpeaking
-                ? "Stop Reading"
-                : "Read Aloud"}
-            </button>
+        {sections.length > 0 && (
+          <div className='flex flex-col gap-3 mt-6'>
+            <div className='flex justify-center items-center gap-3'>
+              <button
+                onClick={downloadAsPDF}
+                disabled={isGeneratingPDF}
+                className={`flex-1 py-3 rounded-lg font-semibold text-white transition-colors duration-200 ${
+                  isGeneratingPDF
+                    ? 'bg-gray-600 cursor-not-allowed'
+                    : 'bg-purple-600 hover:bg-purple-700'
+                }`}
+              >
+                {isGeneratingPDF ? "Generating PDF..." : "Download as PDF"}
+              </button>
+              {voicesLoaded && (
+                <button
+                  onClick={toggleSpeech}
+                  disabled={!sections.length || !voicesLoaded}
+                  className={`flex-1 py-3 rounded-lg font-semibold text-white transition-colors duration-200 ${
+                    !sections.length || !voicesLoaded
+                      ? 'bg-gray-600 cursor-not-allowed'
+                      : isSpeaking
+                      ? 'bg-red-600 hover:bg-red-700'
+                      : 'bg-indigo-600 hover:bg-indigo-700'
+                  }`}
+                >
+                  {!sections.length || !voicesLoaded
+                    ? "Loading..."
+                    : isSpeaking
+                    ? "Stop Reading"
+                    : "Read Aloud"}
+                </button>
+              )}
+            </div>
             <button
               onClick={handleSubmitStory}
-              className="flex-1 py-3 mt-6 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors duration-200"
+              className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors duration-200"
             >
               Submit Story
             </button>
