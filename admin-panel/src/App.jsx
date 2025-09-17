@@ -112,14 +112,17 @@ function AppContent() {
       const response = await axios.post(`${import.meta.env.VITE_API_URL}/parts`, data, {
         headers: { 'Content-Type': 'multipart/form-data', Authorization: `Bearer ${token}` },
       });
-      const updatedStories = stories.map((s) =>
-        s.id === data.get('storyId') ? { ...s, parts: { card: s.parts.card.concat(response.data.part) } } : s
-      );
-      setStories(updatedStories);
-      setFilteredStories(updatedStories);
-      setModal({ show: true, message: response.data.message });
-      setTimeout(() => setModal({ show: false, message: '' }), 2000);
-      navigate('/my-stories');
+      
+      // Check if response is successful (status 200-299)
+      if (response.status >= 200 && response.status < 300) {
+        // Refresh stories to get updated data
+        smartFetchStories();
+        setModal({ show: true, message: response.data.message || 'Part added successfully!' });
+        setTimeout(() => setModal({ show: false, message: '' }), 2000);
+        navigate('/my-stories');
+      } else {
+        setModal({ show: true, message: 'Failed to add part' });
+      }
     } catch (err) {
       console.error('Add part error:', err.response?.data || err.message);
       setModal({ show: true, message: 'Failed to add part' });
@@ -170,15 +173,16 @@ function AppContent() {
       const response = await axios.post(`${import.meta.env.VITE_API_URL}/parts`, formData, {
         headers: { 'Content-Type': 'multipart/form-data', Authorization: `Bearer ${token}` },
       });
-      const updatedStories = stories.map((s) =>
-        s.id === formData.get('storyId')
-          ? { ...s, parts: { card: s.parts.card.map((p) => (p.id === partId ? response.data.part : p)) } }
-          : s
-      );
-      setStories(updatedStories);
-      setFilteredStories(updatedStories);
-      setModal({ show: true, message: 'Part updated successfully!' });
-      setTimeout(() => setModal({ show: false, message: '' }), 1500);
+      
+      // Check if response is successful (status 200-299)
+      if (response.status >= 200 && response.status < 300) {
+        // Refresh stories to get updated data
+        smartFetchStories();
+        setModal({ show: true, message: response.data.message || 'Part updated successfully!' });
+        setTimeout(() => setModal({ show: false, message: '' }), 1500);
+      } else {
+        setModal({ show: true, message: 'Failed to update part' });
+      }
     } catch (error) {
       console.error('Error updating part:', error.response?.data || error.message);
       setModal({
