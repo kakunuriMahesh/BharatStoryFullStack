@@ -16,6 +16,18 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
   const speechRef = useRef(null);
   const previewRef = useRef(null);
 
+  // Helper function to get appropriate font family for language
+  const getFontFamily = () => {
+    switch (language) {
+      case 'te':
+        return '"Noto Sans Telugu", "Poppins", sans-serif';
+      case 'hi':
+        return '"Noto Sans Devanagari", "Poppins", sans-serif';
+      default:
+        return 'inherit';
+    }
+  };
+
   useEffect(() => {
     // Initialize speech synthesis
     if ('speechSynthesis' in window) {
@@ -61,149 +73,27 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
     setIsGeneratingPDF(true);
     
     try {
-      // Create PDF
+      // Use html2canvas to capture the content with proper font rendering
+      const canvas = await html2canvas(previewRef.current, {
+        backgroundColor: '#1f2937', // Gray-800
+        scale: 2, // Higher resolution
+        useCORS: true,
+        allowTaint: true,
+        logging: false
+      });
+      
+      // Create PDF from canvas
       const pdf = new jsPDF('p', 'mm', 'a4');
       const pageWidth = 210; // A4 width in mm
       const pageHeight = 297; // A4 height in mm
-      const margin = 20;
-      const contentWidth = pageWidth - (2 * margin);
-      let currentY = margin;
       
-      // Add title
-      pdf.setFontSize(24);
-      pdf.setTextColor(255, 255, 255);
-      pdf.setFillColor(31, 41, 55); // Gray-800 background
-      pdf.rect(0, 0, pageWidth, pageHeight, 'F');
+      // Calculate dimensions to fit the canvas in the PDF
+      const imgWidth = pageWidth;
+      const imgHeight = (canvas.height * pageWidth) / canvas.width;
       
-      pdf.setFontSize(24);
-      pdf.setTextColor(255, 255, 255);
-      pdf.text('Story Preview', pageWidth / 2, currentY, { align: 'center' });
-      currentY += 20;
-      
-      // Process each section
-      for (let index = 0; index < sections.length; index++) {
-        const section = sections[index];
-        // Check if we need a new page
-        if (currentY > pageHeight - 100) {
-          pdf.addPage();
-          pdf.setFillColor(31, 41, 55);
-          pdf.rect(0, 0, pageWidth, pageHeight, 'F');
-          currentY = margin;
-        }
-        
-        // Add section number and heading
-        if (outputFormat?.includeHeadings || section.heading[language]) {
-          pdf.setFontSize(18);
-          pdf.setTextColor(129, 140, 248); // Indigo-400
-          const headingText = `${index + 1}) ${section.heading[language] || ""}`;
-          pdf.text(headingText, margin, currentY);
-          currentY += 10;
-          
-          // Add quote if included
-          if (outputFormat?.includeQuotes && section.quote[language]) {
-            pdf.setFontSize(12);
-            pdf.setTextColor(200, 200, 200);
-            pdf.text(section.quote[language], margin, currentY);
-            currentY += 8;
-          }
-        }
-        
-        // Add image if included
-        if (outputFormat?.includeImageSuggestions && section.image_gen) {
-          try {
-            // Check if we have enough space for image
-            const imageHeight = 80; // Fixed height for images
-            if (currentY + imageHeight > pageHeight - margin) {
-              pdf.addPage();
-              pdf.setFillColor(31, 41, 55);
-              pdf.rect(0, 0, pageWidth, pageHeight, 'F');
-              currentY = margin;
-            }
-            
-            // Try to load and add the actual image
-            try {
-              const img = new Image();
-              img.crossOrigin = 'anonymous';
-              
-              const imageLoaded = await new Promise((resolve, reject) => {
-                img.onload = () => resolve(img);
-                img.onerror = () => reject(new Error('Image load failed'));
-                img.src = section.image_gen;
-              });
-              
-              // Calculate image dimensions to fit content width
-              const imgAspectRatio = imageLoaded.width / imageLoaded.height;
-              const imgWidth = contentWidth;
-              const imgHeight = imgWidth / imgAspectRatio;
-              const finalHeight = Math.min(imgHeight, 80); // Max height of 80mm
-              
-              // Add image to PDF
-              pdf.addImage(imageLoaded, 'JPEG', margin, currentY, contentWidth, finalHeight);
-              currentY += finalHeight + 10;
-              
-            } catch (imgError) {
-              console.log('Could not load image, adding placeholder:', imgError);
-              
-              // Add image placeholder
-              pdf.setFillColor(75, 85, 99); // Gray-600
-              pdf.rect(margin, currentY, contentWidth, imageHeight, 'F');
-              
-              // Add image text
-              pdf.setFontSize(10);
-              pdf.setTextColor(255, 255, 255);
-              pdf.text('Image: ' + (section.heading[language] || 'Section image'), margin + 5, currentY + 15);
-              currentY += imageHeight + 10;
-            }
-          } catch (error) {
-            console.log('Could not add image:', error);
-            currentY += 10;
-          }
-        }
-        
-        // Add text content
-        const textContent = !outputFormat?.oneLineText 
-          ? (section.sectionText[language] || section.oneLineText[language] || "")
-          : (section.oneLineText[language] || "");
-        
-        if (textContent) {
-          pdf.setFontSize(14);
-          pdf.setTextColor(229, 231, 235); // Gray-200
-          
-          // Split text into lines that fit the page width
-          const lines = pdf.splitTextToSize(textContent, contentWidth);
-          
-          // Check if we need a new page for the text
-          const lineHeight = 6; // Line height in mm
-          const textHeight = lines.length * lineHeight;
-          
-          if (currentY + textHeight > pageHeight - margin - 20) {
-            pdf.addPage();
-            pdf.setFillColor(31, 41, 55);
-            pdf.rect(0, 0, pageWidth, pageHeight, 'F');
-            currentY = margin;
-          }
-          
-          // Add the text with proper line spacing
-          pdf.text(lines, margin, currentY, { lineHeightFactor: 1.2 });
-          currentY += textHeight + 15;
-        }
-        
-        // Add spacing between sections
-        currentY += 15;
-      }
-      
-      // Add page numbers
-      const totalPages = pdf.internal.getNumberOfPages();
-      for (let i = 1; i <= totalPages; i++) {
-        pdf.setPage(i);
-        pdf.setFontSize(10);
-        pdf.setTextColor(100, 100, 100);
-        pdf.text(
-          `Page ${i} of ${totalPages}`,
-          pageWidth - 20,
-          pageHeight - 10
-        );
-      }
+      // Add the canvas as image to PDF
+      const imgData = canvas.toDataURL('image/png');
+      pdf.addImage(imgData, 'PNG', 0, 0, imgWidth, imgHeight);
       
       // Download the PDF
       const fileName = `story-preview-${new Date().toISOString().split('T')[0]}.pdf`;
@@ -330,17 +220,27 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
           </div>
         </div>
 
-        <div ref={previewRef} className="space-y-6">
+        <div ref={previewRef} className="space-y-6" style={{ fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif, "Noto Sans Telugu", "Noto Sans Devanagari", "Poppins"' }}>
           {sections.map((section, index) => (
             <div key={index} className="bg-gray-700 rounded-lg p-4">
               {(outputFormat?.includeHeadings || section.heading[language]) && (
                 <p
-                  style={{ fontSize: `${fontSize + 2}px` }}
+                  style={{ 
+                    fontSize: `${fontSize + 2}px`,
+                    fontFamily: getFontFamily()
+                  }}
                   className="text-lg font-semibold text-indigo-400 mb-2"
                 >
                   {`${index + 1})`} {section.heading[language] || ""}
                   {outputFormat?.includeQuotes && (
-                    <span className="block text-sm text-gray-300 italic mt-1">{section.quote[language] || ""}</span>
+                    <span 
+                      className="block text-sm text-gray-300 italic mt-1"
+                      style={{ 
+                        fontFamily: getFontFamily()
+                      }}
+                    >
+                      {section.quote[language] || ""}
+                    </span>
                   )}
                 </p>
               )}
@@ -363,7 +263,10 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
                 <div className="flex-grow">
                   {!outputFormat?.oneLineText && (
                     <p
-                      style={{ fontSize: `${fontSize}px` }}
+                      style={{ 
+                        fontSize: `${fontSize}px`,
+                        fontFamily: getFontFamily()
+                      }}
                       className="text-gray-200"
                       ref={(el) => (paraRefs.current[index] = el)}
                     >
@@ -372,7 +275,10 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
                   )}
                   {outputFormat?.oneLineText && (
                     <p
-                      style={{ fontSize: `${fontSize}px` }}
+                      style={{ 
+                        fontSize: `${fontSize}px`,
+                        fontFamily: getFontFamily()
+                      }}
                       className="text-gray-200"
                     >
                       {section.oneLineText[language] || ""}

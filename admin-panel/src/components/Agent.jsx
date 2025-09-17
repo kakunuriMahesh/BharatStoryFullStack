@@ -379,6 +379,11 @@ const Agent = ({addStory, addPart, stories }) => {
       setThumbnailImage(file);
       setThumbnailPreview(URL.createObjectURL(file));
       setThumbnailError("");
+      // Update formData with thumbnail image
+      setFormData(prev => ({
+        ...prev,
+        thumbnailImage: file
+      }));
     } else {
       setThumbnailError("Thumbnail Image is required");
     }
@@ -389,6 +394,11 @@ const Agent = ({addStory, addPart, stories }) => {
     setThumbnailImage(null);
     setThumbnailPreview(null);
     setThumbnailError("Thumbnail Image is required");
+    // Update formData to remove thumbnail image
+    setFormData(prev => ({
+      ...prev,
+      thumbnailImage: null
+    }));
   };
 
   // Map output format based on target age group
@@ -500,14 +510,29 @@ const Agent = ({addStory, addPart, stories }) => {
 
   // Function to update section content
   const updateSection = (index, field, value) => {
-    const updatedSections = [...sections];
-    updatedSections[index] = {
-      ...updatedSections[index],
-      [field]: typeof value === "object" 
-        ? { ...updatedSections[index][field], [selectedLanguage]: value[selectedLanguage] } 
-        : { ...updatedSections[index][field], [selectedLanguage]: value },
-    };
-    setSections(updatedSections);
+    setSections(prevSections => {
+      const updatedSections = [...prevSections];
+      const currentSection = updatedSections[index];
+      
+      if (field === 'heading' || field === 'quote' || field === 'sectionText' || field === 'oneLineText') {
+        // Handle nested language objects
+        updatedSections[index] = {
+          ...currentSection,
+          [field]: {
+            ...currentSection[field],
+            [selectedLanguage]: value
+          }
+        };
+      } else {
+        // Handle simple fields like image_gen
+        updatedSections[index] = {
+          ...currentSection,
+          [field]: value
+        };
+      }
+      
+      return updatedSections;
+    });
   };
 
   // Function to add a new section
@@ -1191,7 +1216,7 @@ const Agent = ({addStory, addPart, stories }) => {
                         <textarea
                           value={section.sectionText[selectedLanguage] || ""}
                           onChange={(e) =>
-                            updateSection(index, "sectionText", { [selectedLanguage]: e.target.value })
+                            updateSection(index, "sectionText", e.target.value)
                           }
                           placeholder="Enter the main content for this section..."
                           className="w-full p-3 bg-gray-600 border border-gray-500 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -1208,7 +1233,7 @@ const Agent = ({addStory, addPart, stories }) => {
                           type="text"
                           value={section.oneLineText[selectedLanguage] || ""}
                           onChange={(e) =>
-                            updateSection(index, "oneLineText", { [selectedLanguage]: e.target.value })
+                            updateSection(index, "oneLineText", e.target.value)
                           }
                           placeholder="Enter one-line text..."
                           className="w-full p-3 bg-gray-600 border border-gray-500 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
@@ -1231,8 +1256,8 @@ const Agent = ({addStory, addPart, stories }) => {
                       />
                     </div>
 
-                    {section.image_gen && (
-                      <div className="relative">
+                    {section.image_gen ? (
+                      <div className="relative" key={`image-${index}-${section.image_gen ? 'has-image' : 'no-image'}`}>
                         <img
                           src={section.image_gen}
                           alt={`Illustration for ${section.heading[selectedLanguage] || "Section"}`}
@@ -1272,9 +1297,8 @@ const Agent = ({addStory, addPart, stories }) => {
                           </button>
                         </div>
                       </div>
-                    )}
-                    {!section.image_gen && (
-                      <div>
+                    ) : (
+                      <div key={`upload-${index}-${section.image_gen ? 'has-image' : 'no-image'}`}>
                         <label className="block text-sm font-medium text-gray-300 mb-1">
                           Upload Image:
                         </label>
@@ -1296,6 +1320,9 @@ const Agent = ({addStory, addPart, stories }) => {
                           }}
                           className="w-full p-3 bg-gray-600 border border-gray-500 rounded-lg text-white"
                         />
+                        <p className="text-xs text-gray-400 mt-1">
+                          Upload an image or paste a URL above
+                        </p>
                       </div>
                     )}
                   </div>
