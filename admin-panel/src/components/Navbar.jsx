@@ -1,10 +1,11 @@
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Search, BookOpen } from "lucide-react";
+import { Search, BookOpen, ChevronDown } from "lucide-react";
 
 const Navbar = ({ stories, onSearch }) => {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedStory, setSelectedStory] = useState("");
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const navigate = useNavigate();
 
   // Handle search input changes and pass to parent (App)
@@ -98,12 +99,41 @@ const Navbar = ({ stories, onSearch }) => {
               </div>
             )}
           </div>
-          <Link
-            to="/my-stories"
-            className="text-white bg-blue-700 hover:bg-blue-800 px-4 py-2 rounded flex items-center gap-2"
-          >
-            <BookOpen size={20} /> My Stories ({stories.length})
-          </Link>
+          {/* TODO: */}
+          <div className="relative" onMouseLeave={() => setIsDropdownOpen(false)}>
+            <button
+              onClick={() => setIsDropdownOpen((prev) => !prev)}
+              onMouseEnter={() => setIsDropdownOpen(true)}
+              className="text-white bg-blue-700 hover:bg-blue-800 px-4 py-2 rounded flex items-center gap-2"
+            >
+              <BookOpen size={20} /> My Stories ({stories.length}) <ChevronDown size={18} />
+            </button>
+            {isDropdownOpen && (
+              <div className="absolute right-0  w-48 bg-white rounded shadow-lg z-20">
+                <Link
+                  to="/my-stories"
+                  className="block px-4 py-2 text-gray-700 hover:bg-gray-100"
+                  onClick={() => setIsDropdownOpen(false)}
+                >
+                  All Stories
+                </Link>
+                <Link
+                  to="/stories/toddler"
+                  className="block px-4 py-2 text-gray-700 hover:bg-gray-100"
+                  onClick={() => setIsDropdownOpen(false)}
+                >
+                  Toddler
+                </Link>
+                <Link
+                  to="/stories/kids"
+                  className="block px-4 py-2 text-gray-700 hover:bg-gray-100"
+                  onClick={() => setIsDropdownOpen(false)}
+                >
+                  Kids
+                </Link>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </nav>

@@ -134,16 +134,76 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
       image: section.image_gen || ''
     }));
 
-    // Create FormData for submission
-    const submitData = new FormData();
-    
     // Find the selected story to get its ID
     const story = stories?.find(s => s.name.en === selectedStory);
     if (!story) {
       alert('Selected story not found.');
       return;
     }
-    
+
+    // TODO:
+    // If target age group is toddler (3-5) or kids (6-8), send simplified age payload
+const isToddler = formData.targetAgeGroup === '3-5';
+const isKids = formData.targetAgeGroup === '6-8';
+if (isToddler || isKids) {
+  const group = isToddler ? 'toddler' : 'kids';
+
+  // Build ageCard with multi-language fields preserved
+  const ageCard = {
+    id: uuidv4(),
+    title: {
+      en: formData.title?.en || '',
+      te: formData.title?.te || '',
+      hi: formData.title?.hi || ''
+    },
+    thumbnailImage:
+      (typeof formData.thumbnailPreview === 'string' && formData.thumbnailPreview) ||
+      (typeof formData.thumbnailImage === 'string' ? formData.thumbnailImage : '') ||
+      '',
+    coverImage: '',
+    description: {
+      en: formData.description?.en || '',
+      te: formData.description?.te || '',
+      hi: formData.description?.hi || ''
+    },
+    timeToRead: {
+      en: formData.timeToRead?.en || '',
+      te: formData.timeToRead?.te || '',
+      hi: formData.timeToRead?.hi || ''
+    },
+    storyType: {
+      en: formData.storyType?.en || '',
+      te: formData.storyType?.te || '',
+      hi: formData.storyType?.hi || ''
+    },
+    partContent: sections.map((section) => ({
+      id: uuidv4(),
+      oneLineText: isToddler
+        ? {
+            en: section.oneLineText?.en || section.sectionText?.en || '',
+            te: section.oneLineText?.te || section.sectionText?.te || '',
+            hi: section.oneLineText?.hi || section.sectionText?.hi || ''
+          }
+        : undefined,
+      headingText: isKids
+        ? {
+            en: section.heading?.en || '',
+            te: section.heading?.te || '',
+            hi: section.heading?.hi || ''
+          }
+        : undefined,
+      imageUrl: section.image_gen || ''
+    }))
+  };
+
+  onSubmitStory({ __agePayload: true, storyId: story.id, group, card: ageCard });
+  onClose();
+  return;
+}
+
+
+    // Otherwise, submit via classic multi-language parts flow
+    const submitData = new FormData();
     submitData.append('storyId', story.id);
     
     // Add card details for each language

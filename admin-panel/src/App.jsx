@@ -7,6 +7,8 @@ import Cookies from 'js-cookie';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
 import MyStories from './pages/MyStories';
+import ToddlerStories from './pages/ToddlerStories';
+import KidsStories from './pages/KidsStories';
 import StoryForm from './components/StoryForm';
 import EditStoryForm from './components/EditStoryForm';
 import PartForm from './components/PartForm';
@@ -109,15 +111,26 @@ function AppContent() {
     try {
       setLoading('addPart', true, 'Adding part...');
       const token = Cookies.get('token');
-      const response = await axios.post(`${import.meta.env.VITE_API_URL}/parts`, data, {
-        headers: { 'Content-Type': 'multipart/form-data', Authorization: `Bearer ${token}` },
-      });
+      // TODO:
+      let response;
+      if (data && data.__agePayload) {
+        const { storyId, group, card } = data;
+        response = await axios.post(
+          `${import.meta.env.VITE_API_URL}/stories/${storyId}/age-content`,
+          { group, card },
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+      } else {
+        response = await axios.post(`${import.meta.env.VITE_API_URL}/parts`, data, {
+          headers: { 'Content-Type': 'multipart/form-data', Authorization: `Bearer ${token}` },
+        });
+      }
       
       // Check if response is successful (status 200-299)
       if (response.status >= 200 && response.status < 300) {
         // Refresh stories to get updated data
         smartFetchStories();
-        setModal({ show: true, message: response.data.message || 'Part added successfully!' });
+        setModal({ show: true, message: response.data.message || 'Content added successfully!' });
         setTimeout(() => setModal({ show: false, message: '' }), 2000);
         navigate('/my-stories');
       } else {
@@ -230,6 +243,8 @@ function AppContent() {
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/my-stories" element={<MyStories stories={filteredStories} deleteStory={deleteStory} />} />
+        <Route path="/stories/toddler" element={<ToddlerStories stories={filteredStories} />} />
+        <Route path="/stories/kids" element={<KidsStories stories={filteredStories} />} />
         <Route path="/add-story" element={<StoryForm addStory={addStory} />} />
         <Route path="/edit-story/:id" element={<EditStoryForm updateStory={updateStory} deleteStory={deleteStory} />} />
         <Route path="/add-part" element={<PartForm stories={filteredStories} addPart={addPart} updatePart={updatePart} deletePart={deletePart} />} />
