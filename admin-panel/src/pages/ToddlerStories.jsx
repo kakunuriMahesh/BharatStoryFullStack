@@ -47,7 +47,7 @@ const ToddlerStories = ({ stories = [] }) => {
               }
             >
               <h2 className="text-lg font-semibold">
-                {story.name?.en || "Untitled"}
+                {story.title?.en || "Untitled"}
               </h2>
               {openStoryId === story.id ? (
                 <ChevronUp size={20} />

@@ -148,6 +148,7 @@ const isKids = formData.targetAgeGroup === '6-8';
 if (isToddler || isKids) {
   const group = isToddler ? 'toddler' : 'kids';
 
+  console.log('formDataCheck :', formData);
   // Build ageCard with multi-language fields preserved
   const ageCard = {
     id: uuidv4(),
@@ -156,10 +157,10 @@ if (isToddler || isKids) {
       te: formData.title?.te || '',
       hi: formData.title?.hi || ''
     },
-    thumbnailImage:
-      (typeof formData.thumbnailPreview === 'string' && formData.thumbnailPreview) ||
-      (typeof formData.thumbnailImage === 'string' ? formData.thumbnailImage : '') ||
-      '',
+    thumbnailImage: formData.thumbnailImage || '',
+      // (typeof formData.thumbnailPreview === 'string' && formData.thumbnailPreview) ||
+      // (typeof formData.thumbnailImage === 'string' ? formData.thumbnailImage : '') ||
+      // '',
     coverImage: '',
     description: {
       en: formData.description?.en || '',
@@ -218,8 +219,10 @@ if (isToddler || isKids) {
     
     // Add thumbnail image
     if (formData.thumbnailImage) {
-      submitData.append('thumbnailImage', formData.thumbnailImage);
-    } else if (formData.thumbnailPreview) {
+    console.log("Submitting thumbnail file:", formData.thumbnailImage);
+    submitData.append('thumbnailImage', formData.thumbnailImage);
+  } else if (formData.thumbnailPreview) {
+      console.log("Submitting thumbnail preview file:", formData.thumbnailPreview);
       submitData.append('thumbnailImage', formData.thumbnailPreview);
     }
     
@@ -241,7 +244,6 @@ if (isToddler || isKids) {
     });
     
     submitData.append('languages', JSON.stringify(partLanguages));
-    
     // Call the submit function
     onSubmitStory(submitData);
     

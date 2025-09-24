@@ -198,6 +198,7 @@ const PartForm = ({ stories, addPart, updatePart, deletePart }) => {
         formData.append("storyTypeHi", data.storyTypeHi || "");
       }
       if (images.thumbnailImage) {
+        console.log('Uploading new thumbnail image:', images.thumbnailImage,images);
         formData.append("thumbnailImage", images.thumbnailImage);
       } else if (previews.thumbnailImage) {
         formData.append("thumbnailImage", previews.thumbnailImage); // Existing URL
@@ -247,6 +248,7 @@ const PartForm = ({ stories, addPart, updatePart, deletePart }) => {
         formData.append("partId", partId);
         await updatePart(selectedStory, partId, formData);
       } else {
+        console.log('Submitting new part with data:', formData.thumbnailImage);
         await addPart(formData);
       }
       reset();
