@@ -11,12 +11,15 @@ import ToddlerStories from "./pages/ToddlerStories";
 import KidsStories from "./pages/KidsStories";
 import StoryForm from "./components/StoryForm";
 import EditStoryForm from "./components/EditStoryForm";
+import EditKidForm from "./components/EditKidForm";
+import EditToddlerForm from "./components/EditToddlerForm";
 import PartForm from "./components/PartForm";
 import Login from "./pages/Login";
 import NotifySubscribers from "./pages/notifySubscribers";
 import Agent from "./components/Agent";
 import { LoadingProvider, useLoading } from "./contexts/LoadingContext";
 import Loader, { PageLoader } from "./components/Loader";
+import ErrorBoundary from "./components/ErrorBoundary";
 import { useStories } from "./hooks/useStories";
 
 function AppContent() {
@@ -304,6 +307,82 @@ function AppContent() {
     }
   };
 
+  const deleteAgeContent = async (storyId, cardId, group) => {
+    try {
+      setLoading("deleteAgeContent", true, `Deleting ${group} content...`);
+      const token = Cookies.get("token");
+      await axios.delete(
+        `${import.meta.env.VITE_API_URL}/stories/${storyId}/age-content/${cardId}?group=${group}`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        }
+      );
+      // Refresh stories to get updated data
+      smartFetchStories();
+      setModal({ show: true, message: `${group} content deleted successfully!` });
+      setTimeout(() => setModal({ show: false, message: "" }), 2000);
+    } catch (err) {
+      console.error("Delete age content error:", err.response?.data || err.message);
+      setModal({ show: true, message: `Failed to delete ${group} content` });
+    } finally {
+      setLoading("deleteAgeContent", false);
+    }
+  };
+
+  const updateAgeContent = async (storyId, cardId, group, data) => {
+    try {
+      setLoading("updateAgeContent", true, `Updating ${group} content...`);
+      const token = Cookies.get("token");
+      
+      const formData = new FormData();
+      formData.append("group", group);
+      formData.append("card", JSON.stringify(data.card));
+
+      // Append files if they exist
+      if (data.card.thumbnailImage instanceof File) {
+        formData.append("thumbnailImage", data.card.thumbnailImage);
+      }
+      if (data.card.coverImage instanceof File) {
+        formData.append("coverImage", data.card.coverImage);
+      }
+
+      // Append part content images
+      if (data.card.partContent) {
+        data.card.partContent.forEach((part, index) => {
+          if (part.imageUrl instanceof File) {
+            formData.append(`partImage${index}`, part.imageUrl);
+          }
+        });
+      }
+
+      const response = await axios.put(
+        `${import.meta.env.VITE_API_URL}/stories/${storyId}/age-content/${cardId}`,
+        formData,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "multipart/form-data",
+          },
+        }
+      );
+
+      if (response.status >= 200 && response.status < 300) {
+        // Refresh stories to get updated data
+        smartFetchStories();
+        setModal({ show: true, message: `${group} content updated successfully!` });
+        setTimeout(() => setModal({ show: false, message: "" }), 2000);
+        navigate("/my-stories");
+      } else {
+        setModal({ show: true, message: `Failed to update ${group} content` });
+      }
+    } catch (err) {
+      console.error("Update age content error:", err.response?.data || err.message);
+      setModal({ show: true, message: `Failed to update ${group} content` });
+    } finally {
+      setLoading("updateAgeContent", false);
+    }
+  };
+
   const handleSearch = (selectedStory, query) => {
     searchStories(selectedStory, query);
   };
@@ -332,11 +411,19 @@ function AppContent() {
         />
         <Route
           path="/stories/toddler"
-          element={<ToddlerStories stories={filteredStories} />}
+          element={
+            <ErrorBoundary>
+              <ToddlerStories stories={filteredStories} deleteAgeContent={deleteAgeContent} />
+            </ErrorBoundary>
+          }
         />
         <Route
           path="/stories/kids"
-          element={<KidsStories stories={filteredStories} />}
+          element={
+            <ErrorBoundary>
+              <KidsStories stories={filteredStories} deleteAgeContent={deleteAgeContent} />
+            </ErrorBoundary>
+          }
         />
         <Route path="/add-story" element={<StoryForm addStory={addStory} />} />
         <Route
@@ -345,6 +432,24 @@ function AppContent() {
             <EditStoryForm
               updateStory={updateStory}
               deleteStory={deleteStory}
+            />
+          }
+        />
+        <Route
+          path="/edit-kid/:storyId/:cardId"
+          element={
+            <EditKidForm
+              updateAgeContent={updateAgeContent}
+              deleteAgeContent={deleteAgeContent}
+            />
+          }
+        />
+        <Route
+          path="/edit-toddler/:storyId/:cardId"
+          element={
+            <EditToddlerForm
+              updateAgeContent={updateAgeContent}
+              deleteAgeContent={deleteAgeContent}
             />
           }
         />
@@ -391,7 +496,9 @@ function AppContent() {
         isLoading("deleteStory") ||
         isLoading("addPart") ||
         isLoading("updatePart") ||
-        isLoading("deletePart")) && (
+        isLoading("deletePart") ||
+        isLoading("deleteAgeContent") ||
+        isLoading("updateAgeContent")) && (
         <Loader
           overlay={true}
           text={
@@ -402,7 +509,9 @@ function AppContent() {
                 getLoadingMessage("deleteStory") ||
                 getLoadingMessage("addPart") ||
                 getLoadingMessage("updatePart") ||
-                getLoadingMessage("deletePart")
+                getLoadingMessage("deletePart") ||
+                getLoadingMessage("deleteAgeContent") ||
+                getLoadingMessage("updateAgeContent")
           }
         />
       )}
