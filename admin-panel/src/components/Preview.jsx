@@ -11,6 +11,8 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
   const [voicesLoaded, setVoicesLoaded] = useState(false);
   const [imagesLoaded, setImagesLoaded] = useState({});
   const [isGeneratingPDF, setIsGeneratingPDF] = useState(false);
+  const [selectedAgeGroup, setSelectedAgeGroup] = useState(null);
+  const [multiAgeSections, setMultiAgeSections] = useState(null);
   const imageRefs = useRef([]);
   const paraRefs = useRef([]);
   const speechRef = useRef(null);
@@ -41,6 +43,28 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
       }
     }
   }, []);
+
+  // Detect and parse multi-age content
+  useEffect(() => {
+    if (sections && sections.length > 0 && sections[0].targetAgeGroup) {
+      // Multi-age content detected
+      const ageGroupsData = {};
+      sections.forEach(section => {
+        const ageGroup = section.targetAgeGroup;
+        if (!ageGroupsData[ageGroup]) {
+          ageGroupsData[ageGroup] = [];
+        }
+        ageGroupsData[ageGroup].push(section);
+      });
+      setMultiAgeSections(ageGroupsData);
+      // Set first age group as selected by default
+      const firstAgeGroup = Object.keys(ageGroupsData)[0];
+      setSelectedAgeGroup(firstAgeGroup);
+    } else {
+      setMultiAgeSections(null);
+      setSelectedAgeGroup(null);
+    }
+  }, [sections]);
 
   const toggleSpeech = () => {
     if (isSpeaking) {
@@ -107,13 +131,414 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
     }
   };
 
-  const handleSubmitStory = () => {
+  // Function to view saved drafts
+  const viewDrafts = () => {
+    const drafts = JSON.parse(localStorage.getItem('storyDrafts') || '[]');
+    
+    if (drafts.length === 0) {
+      alert('No drafts found.');
+      return;
+    }
+    
+    console.log('Saved drafts:', drafts);
+    
+    let message = `Found ${drafts.length} draft(s):\n\n`;
+    drafts.forEach((draft, index) => {
+      const date = new Date(draft.timestamp).toLocaleString();
+      const ageGroups = draft.multiAgeSections ? Object.keys(draft.multiAgeSections).join(', ') : draft.formData.targetAgeGroup;
+      message += `${index + 1}. ${draft.storyName} (${ageGroups}) - ${date}\n`;
+    });
+    
+    alert(message);
+  };
+
+  // Function to process a saved draft (can be called later)
+  const processDraft = async (draftData) => {
+    console.log('Processing draft:', draftData.draftId);
+    
+    // Handle multi-age submissions SEQUENTIALLY to avoid 504/500 errors
+    if (draftData.multiAgeSections && Object.keys(draftData.multiAgeSections).length > 0) {
+      console.log('Multi-age submission detected, submitting sequentially...');
+      
+      const ageGroups = Object.keys(draftData.multiAgeSections);
+      let successCount = 0;
+      
+      // Submit each age group one at a time
+      for (let i = 0; i < ageGroups.length; i++) {
+        const ageGroup = ageGroups[i];
+        const ageSections = draftData.multiAgeSections[ageGroup];
+        const isLastSubmission = i === ageGroups.length - 1;
+        
+        console.log(`[${i + 1}/${ageGroups.length}] Submitting ${ageGroup} content...`);
+        
+        // Convert sections to part format
+        const partData = ageSections.map((section) => ({
+          id: section.id || uuidv4(),
+          heading: {
+            en: section.heading?.en || '',
+            te: section.heading?.te || '',
+            hi: section.heading?.hi || ''
+          },
+          quote: {
+            en: section.quote?.en || '',
+            te: section.quote?.te || '',
+            hi: section.quote?.hi || ''
+          },
+          text: {
+            en: section.sectionText?.en || section.oneLineText?.en || '',
+            te: section.sectionText?.te || section.oneLineText?.te || '',
+            hi: section.sectionText?.hi || section.oneLineText?.hi || ''
+          },
+          image: section.imageUrl || section.image_gen || ''
+        }));
+
+        // Map age groups to database fields
+        const groupMap = {
+          '18+': 'adult',
+          '13-18': 'teen',
+          '9-12': 'child'
+        };
+
+        const dbGroup = groupMap[ageGroup];
+        
+        // Submit as parts (works for adult, child, and teen via ageGroup parameter)
+        const submitData = new FormData();
+        submitData.append('storyId', draftData.storyId);
+        
+        // Add card details for each language
+        draftData.partLanguages.forEach(lang => {
+          const langKey = lang.charAt(0).toUpperCase() + lang.slice(1);
+          submitData.append(`title${langKey}`, draftData.formData.title[lang] || '');
+          submitData.append(`date${langKey}`, draftData.formData.date[lang] || '');
+          submitData.append(`description${langKey}`, draftData.formData.description[lang] || '');
+          submitData.append(`timeToRead${langKey}`, draftData.formData.timeToRead[lang] || '');
+          submitData.append(`storyType${langKey}`, draftData.formData.storyType[lang] || '');
+        });
+        
+        // Add thumbnail image
+        if (draftData.formData.thumbnailImage) {
+          submitData.append('thumbnailImage', draftData.formData.thumbnailImage);
+        } else if (draftData.formData.thumbnailPreview) {
+          submitData.append('thumbnailImage', draftData.formData.thumbnailPreview);
+        }
+        
+        // Add part data for each language
+        partData.forEach((part, index) => {
+          draftData.partLanguages.forEach(lang => {
+            const langKey = lang.charAt(0).toUpperCase() + lang.slice(1);
+            submitData.append(`heading${langKey}${index}`, part.heading[lang] || '');
+            submitData.append(`quote${langKey}${index}`, part.quote[lang] || '');
+            submitData.append(`text${langKey}${index}`, part.text[lang] || '');
+          });
+          
+          if (part.image) {
+            submitData.append(`partImage${index}`, part.image);
+          }
+          
+          submitData.append(`id${index}`, part.id);
+        });
+        
+        submitData.append('languages', JSON.stringify(draftData.partLanguages));
+        
+        // Add ageGroup parameter for routing - SIMPLE FIX
+        console.log('Multi-age - ageGroup:', ageGroup, 'dbGroup:', dbGroup);
+        
+        // Add contentType and ageGroup parameters for clear validation
+        if (ageGroup === '13-18') {
+          submitData.append('ageGroup', 'teen');
+          submitData.append('contentType', 'teen');
+        } else if (ageGroup === '9-12') {
+          submitData.append('ageGroup', 'child');
+          submitData.append('contentType', 'child');
+        } else if (ageGroup === '18+') {
+          submitData.append('contentType', 'adult');
+        }
+        
+        // Debug: Log FormData contents
+        console.log('FormData contents for', ageGroup, ':');
+        for (let [key, value] of submitData.entries()) {
+          console.log(key, ':', value);
+        }
+        
+        // Wait for this submission to complete before proceeding to next
+        // Skip UI updates for all but the last submission
+        try {
+          await onSubmitStory(submitData, { skipUIUpdates: !isLastSubmission });
+          console.log(`✓ ${ageGroup} content submitted successfully`);
+          successCount++;
+        } catch (error) {
+          console.error(`✗ Failed to submit ${ageGroup} content:`, error);
+          alert(`Failed to submit ${ageGroup} content after ${successCount} successful submissions. Please check the database and try again.`);
+          return; // Stop if one fails
+        }
+      }
+
+      console.log(`🎉 All ${successCount} multi-age submissions completed successfully!`);
+      
+      // Show final success message and navigate
+      alert(`Successfully submitted content for ${successCount} age groups!`);
+      
+      // Remove draft from localStorage after successful submission
+      const existingDrafts = JSON.parse(localStorage.getItem('storyDrafts') || '[]');
+      const updatedDrafts = existingDrafts.filter(draft => draft.draftId !== draftData.draftId);
+      localStorage.setItem('storyDrafts', JSON.stringify(updatedDrafts));
+      
+      return;
+    }
+
+    // Single age group submission
+    const partData = draftData.sections.map((section, index) => ({
+      id: uuidv4(),
+      heading: {
+        en: section.heading?.en || '',
+        te: section.heading?.te || '',
+        hi: section.heading?.hi || ''
+      },
+      quote: {
+        en: section.quote?.en || '',
+        te: section.quote?.te || '',
+        hi: section.quote?.hi || ''
+      },
+      text: {
+        en: section.sectionText?.en || section.oneLineText?.en || '',
+        te: section.sectionText?.te || section.oneLineText?.te || '',
+        hi: section.sectionText?.hi || section.oneLineText?.hi || ''
+      },
+      image: section.imageUrl || section.image_gen || ''
+    }));
+
+    const submitData = new FormData();
+    submitData.append('storyId', draftData.storyId);
+    
+    // Add card details for each language
+    draftData.partLanguages.forEach(lang => {
+      const langKey = lang.charAt(0).toUpperCase() + lang.slice(1);
+      submitData.append(`title${langKey}`, draftData.formData.title[lang] || '');
+      submitData.append(`date${langKey}`, draftData.formData.date[lang] || '');
+      submitData.append(`description${langKey}`, draftData.formData.description[lang] || '');
+      submitData.append(`timeToRead${langKey}`, draftData.formData.timeToRead[lang] || '');
+      submitData.append(`storyType${langKey}`, draftData.formData.storyType[lang] || '');
+    });
+    
+    // Add thumbnail image
+    if (draftData.formData.thumbnailImage) {
+      submitData.append('thumbnailImage', draftData.formData.thumbnailImage);
+    } else if (draftData.formData.thumbnailPreview) {
+      submitData.append('thumbnailImage', draftData.formData.thumbnailPreview);
+    }
+    
+    // Add part data for each language
+    partData.forEach((part, index) => {
+      draftData.partLanguages.forEach(lang => {
+        const langKey = lang.charAt(0).toUpperCase() + lang.slice(1);
+        submitData.append(`heading${langKey}${index}`, part.heading[lang] || '');
+        submitData.append(`quote${langKey}${index}`, part.quote[lang] || '');
+        submitData.append(`text${langKey}${index}`, part.text[lang] || '');
+      });
+      
+      // Add image for this part
+      if (part.image) {
+        submitData.append(`partImage${index}`, part.image);
+      }
+      
+      submitData.append(`id${index}`, part.id);
+    });
+    
+    submitData.append('languages', JSON.stringify(draftData.partLanguages));
+    
+    // Add ageGroup parameter for routing - SIMPLE FIX
+    console.log('Single age - targetAgeGroup:', draftData.formData.targetAgeGroup);
+    
+    // Direct mapping - no complex logic
+    if (draftData.formData.targetAgeGroup === '13-18') {
+      submitData.append('ageGroup', 'teen');
+      console.log('Added ageGroup: teen');
+    } else if (draftData.formData.targetAgeGroup === '9-12') {
+      submitData.append('ageGroup', 'child');
+      console.log('Added ageGroup: child');
+    } else if (draftData.formData.targetAgeGroup === '18+') {
+      console.log('Adult content - no ageGroup needed');
+    } else {
+      console.log('Unknown targetAgeGroup:', draftData.formData.targetAgeGroup);
+    }
+    
+    // Call the submit function
+    await onSubmitStory(submitData);
+    
+    // Remove draft from localStorage after successful submission
+    const existingDrafts = JSON.parse(localStorage.getItem('storyDrafts') || '[]');
+    const updatedDrafts = existingDrafts.filter(draft => draft.draftId !== draftData.draftId);
+    localStorage.setItem('storyDrafts', JSON.stringify(updatedDrafts));
+  };
+
+  const handleSubmitStory = async () => {
     if (!selectedStory || !formData) {
       alert('Please select a story and ensure all required data is available.');
       return;
     }
 
+    // Find the selected story to get its ID
+    const story = stories?.find(s => s.name.en === selectedStory);
+    if (!story) {
+      alert('Selected story not found.');
+      return;
+    }
+
+    // Save content to draft first to avoid token expiry issues
+    const draftData = {
+      storyId: story.id,
+      storyName: story.name.en,
+      formData: formData,
+      sections: sections,
+      multiAgeSections: multiAgeSections,
+      partLanguages: partLanguages,
+      timestamp: new Date().toISOString(),
+      status: 'draft'
+    };
+
+    // Save to localStorage as draft
+    const existingDrafts = JSON.parse(localStorage.getItem('storyDrafts') || '[]');
+    const draftId = `draft_${Date.now()}`;
+    draftData.draftId = draftId;
+    existingDrafts.push(draftData);
+    localStorage.setItem('storyDrafts', JSON.stringify(existingDrafts));
+
+    console.log('Content saved to draft:', draftId);
+    
+    // Ask user if they want to process the draft now or later
+    const processNow = confirm('Content saved to draft successfully! Do you want to process it now? (Click OK to submit now, Cancel to save for later)');
+    
+    if (processNow) {
+      // Process the draft immediately
+      try {
+        await processDraft(draftData);
+        onClose();
+      } catch (error) {
+        console.error('Error processing draft:', error);
+        alert('Error processing draft. It has been saved and you can try again later.');
+      }
+    } else {
+      alert('Draft saved successfully! You can process it later from the drafts section.');
+      onClose();
+    }
+    return;
+
+    // NOTE: The code below is commented out to prevent API calls and token expiry issues
+    // Uncomment and use processDraft() function when ready to submit
+
+    // Handle multi-age submissions SEQUENTIALLY to avoid 504/500 errors
+    if (multiAgeSections && Object.keys(multiAgeSections).length > 0) {
+      console.log('Multi-age submission detected, submitting sequentially...');
+      
+      const ageGroups = Object.keys(multiAgeSections);
+      let successCount = 0;
+      
+      // Submit each age group one at a time
+      for (let i = 0; i < ageGroups.length; i++) {
+        const ageGroup = ageGroups[i];
+        const ageSections = multiAgeSections[ageGroup];
+        const isLastSubmission = i === ageGroups.length - 1;
+        
+        console.log(`[${i + 1}/${ageGroups.length}] Submitting ${ageGroup} content...`);
+
     // Convert sections to part format
+        const partData = ageSections.map((section) => ({
+          id: section.id || uuidv4(),
+          heading: {
+            en: section.heading?.en || '',
+            te: section.heading?.te || '',
+            hi: section.heading?.hi || ''
+          },
+          quote: {
+            en: section.quote?.en || '',
+            te: section.quote?.te || '',
+            hi: section.quote?.hi || ''
+          },
+          text: {
+            en: section.sectionText?.en || section.oneLineText?.en || '',
+            te: section.sectionText?.te || section.oneLineText?.te || '',
+            hi: section.sectionText?.hi || section.oneLineText?.hi || ''
+          },
+          image: section.imageUrl || section.image_gen || ''
+        }));
+
+        // Map age groups to database fields
+        const groupMap = {
+          '18+': 'adult',
+          '13-18': 'teen',
+          '9-12': 'child'
+        };
+
+        const dbGroup = groupMap[ageGroup];
+        
+        // Submit as parts (works for adult, child, and teen via ageGroup parameter)
+        const submitData = new FormData();
+        submitData.append('storyId', story.id);
+        
+        // Add card details for each language
+        partLanguages.forEach(lang => {
+          const langKey = lang.charAt(0).toUpperCase() + lang.slice(1);
+          submitData.append(`title${langKey}`, formData.title[lang] || '');
+          submitData.append(`date${langKey}`, formData.date[lang] || '');
+          submitData.append(`description${langKey}`, formData.description[lang] || '');
+          submitData.append(`timeToRead${langKey}`, formData.timeToRead[lang] || '');
+          submitData.append(`storyType${langKey}`, formData.storyType[lang] || '');
+        });
+        
+        // Add thumbnail image
+        if (formData.thumbnailImage) {
+          submitData.append('thumbnailImage', formData.thumbnailImage);
+        } else if (formData.thumbnailPreview) {
+          submitData.append('thumbnailImage', formData.thumbnailPreview);
+        }
+        
+        // Add part data for each language
+        partData.forEach((part, index) => {
+          partLanguages.forEach(lang => {
+            const langKey = lang.charAt(0).toUpperCase() + lang.slice(1);
+            submitData.append(`heading${langKey}${index}`, part.heading[lang] || '');
+            submitData.append(`quote${langKey}${index}`, part.quote[lang] || '');
+            submitData.append(`text${langKey}${index}`, part.text[lang] || '');
+          });
+          
+          if (part.image) {
+            submitData.append(`partImage${index}`, part.image);
+          }
+          
+          submitData.append(`id${index}`, part.id);
+        });
+        
+        submitData.append('languages', JSON.stringify(partLanguages));
+        
+        // Add ageGroup parameter for routing - SIMPLE FIX
+        if (ageGroup === '13-18') {
+          submitData.append('ageGroup', 'teen');
+        } else if (ageGroup === '9-12') {
+          submitData.append('ageGroup', 'child');
+        }
+        
+        // Wait for this submission to complete before proceeding to next
+        // Skip UI updates for all but the last submission
+        try {
+          await onSubmitStory(submitData, { skipUIUpdates: !isLastSubmission });
+          console.log(`✓ ${ageGroup} content submitted successfully`);
+          successCount++;
+        } catch (error) {
+          console.error(`✗ Failed to submit ${ageGroup} content:`, error);
+          alert(`Failed to submit ${ageGroup} content after ${successCount} successful submissions. Please check the database and try again.`);
+          return; // Stop if one fails
+        }
+      }
+
+      console.log(`🎉 All ${successCount} multi-age submissions completed successfully!`);
+      
+      // Show final success message and navigate
+      alert(`Successfully submitted content for ${successCount} age groups!`);
+      onClose();
+      return;
+    }
+
+    // Convert sections to part format (single age group)
     const partData = sections.map((section, index) => ({
       id: uuidv4(),
       heading: {
@@ -133,13 +558,6 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
       },
       image: section.image_gen || ''
     }));
-
-    // Find the selected story to get its ID
-    const story = stories?.find(s => s.name.en === selectedStory);
-    if (!story) {
-      alert('Selected story not found.');
-      return;
-    }
 
     // TODO:
     // If target age group is toddler (3-5) or kids (6-8), send simplified age payload
@@ -244,11 +662,40 @@ if (isToddler || isKids) {
     });
     
     submitData.append('languages', JSON.stringify(partLanguages));
+    
+    // Add contentType and ageGroup parameters for clear validation
+    if (formData.targetAgeGroup === '13-18') {
+      submitData.append('ageGroup', 'teen');
+      submitData.append('contentType', 'teen');
+    } else if (formData.targetAgeGroup === '9-12') {
+      submitData.append('ageGroup', 'child');
+      submitData.append('contentType', 'child');
+    } else if (formData.targetAgeGroup === '18+') {
+      submitData.append('contentType', 'adult');
+    }
+    
     // Call the submit function
     onSubmitStory(submitData);
     
     // Close the preview after successful submission
     onClose();
+  };
+
+  // Get current sections to display
+  const displaySections = multiAgeSections && selectedAgeGroup 
+    ? multiAgeSections[selectedAgeGroup] 
+    : sections;
+
+  // Get age group label
+  const getAgeGroupLabel = (ageGroup) => {
+    const labels = {
+      '3-5': 'Toddler (3-5)',
+      '6-8': 'Kids (6-8)',
+      '9-12': 'Child (9-12)',
+      '13-18': 'Teen (13-18)',
+      '18+': 'Adult (18+)'
+    };
+    return labels[ageGroup] || ageGroup;
   };
 
   return (
@@ -282,8 +729,35 @@ if (isToddler || isKids) {
           </div>
         </div>
 
+        {/* Age Group Selector for Multi-Age Content */}
+        {multiAgeSections && Object.keys(multiAgeSections).length > 0 && (
+          <div className="mb-6 bg-gray-700 p-4 rounded-lg">
+            <label className="block text-sm font-medium text-gray-300 mb-3">
+              Select Age Group to Preview:
+            </label>
+            <div className="flex gap-4 flex-wrap">
+              {Object.keys(multiAgeSections).map((ageGroup) => (
+                <label key={ageGroup} className="flex items-center cursor-pointer">
+                  <input
+                    type="radio"
+                    name="ageGroupPreview"
+                    value={ageGroup}
+                    checked={selectedAgeGroup === ageGroup}
+                    onChange={(e) => setSelectedAgeGroup(e.target.value)}
+                    className="mr-2"
+                  />
+                  <span className="text-white">{getAgeGroupLabel(ageGroup)}</span>
+                </label>
+              ))}
+            </div>
+            <p className="text-sm text-gray-400 mt-2">
+              Preview content for different age groups. All will be submitted together.
+            </p>
+          </div>
+        )}
+
         <div ref={previewRef} className="space-y-6" style={{ fontFamily: 'system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans", "Helvetica Neue", Arial, sans-serif, "Noto Sans Telugu", "Noto Sans Devanagari", "Poppins"' }}>
-          {sections.map((section, index) => (
+          {displaySections.map((section, index) => (
             <div key={index} className="bg-gray-700 rounded-lg p-4">
               {(outputFormat?.includeHeadings || section.heading[language]) && (
                 <p
@@ -352,7 +826,7 @@ if (isToddler || isKids) {
           ))}
         </div>
 
-        {sections.length > 0 && (
+        {displaySections.length > 0 && (
           <div className='flex flex-col gap-3 mt-6'>
             <div className='flex justify-center items-center gap-3'>
               <button
@@ -369,16 +843,16 @@ if (isToddler || isKids) {
               {voicesLoaded && (
                 <button
                   onClick={toggleSpeech}
-                  disabled={!sections.length || !voicesLoaded}
+                  disabled={!displaySections.length || !voicesLoaded}
                   className={`flex-1 py-3 rounded-lg font-semibold text-white transition-colors duration-200 ${
-                    !sections.length || !voicesLoaded
+                    !displaySections.length || !voicesLoaded
                       ? 'bg-gray-600 cursor-not-allowed'
                       : isSpeaking
                       ? 'bg-red-600 hover:bg-red-700'
                       : 'bg-indigo-600 hover:bg-indigo-700'
                   }`}
                 >
-                  {!sections.length || !voicesLoaded
+                  {!displaySections.length || !voicesLoaded
                     ? "Loading..."
                     : isSpeaking
                     ? "Stop Reading"
@@ -386,12 +860,20 @@ if (isToddler || isKids) {
                 </button>
               )}
             </div>
+            <div className="flex gap-3">
+              <button
+                onClick={viewDrafts}
+                className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition-colors duration-200"
+              >
+                View Drafts
+              </button>
             <button
               onClick={handleSubmitStory}
-              className="w-full py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors duration-200"
+                className="flex-1 py-3 bg-green-600 hover:bg-green-700 text-white rounded-lg font-semibold transition-colors duration-200"
             >
               Submit Story
             </button>
+            </div>
           </div>
         )}
       </div>

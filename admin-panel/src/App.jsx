@@ -108,12 +108,18 @@ function AppContent() {
     }
   };
 
-  const addPart = async (data) => {
+  const addPart = async (data, options = {}) => {
+    const { skipUIUpdates = false } = options;
+    
     console.log("Sending data for addPart:", data);
-    setModal({ show: true, message: "Failed to add part" });
+    if (!skipUIUpdates) {
+      setModal({ show: true, message: "Failed to add part" });
+    }
 
     try {
-      setLoading("addPart", true, "Adding part...");
+      if (!skipUIUpdates) {
+        setLoading("addPart", true, "Adding part...");
+      }
       const token = Cookies.get("token");
       // TODO:
       let response;
@@ -154,8 +160,22 @@ function AppContent() {
         );
       } else {
         console.log("addPart: Sending as multipart/form-data", data);
+        
+        // Use separate endpoints for different age groups
+        const contentType = data.get('contentType');
+        let endpoint = `${import.meta.env.VITE_API_URL}/parts`; // Default for Adult
+        
+        if (contentType === 'child') {
+          endpoint = `${import.meta.env.VITE_API_URL}/child-parts`;
+        } else if (contentType === 'teen') {
+          endpoint = `${import.meta.env.VITE_API_URL}/teen-parts`;
+        }
+        
+        console.log('Making request to:', endpoint);
+        console.log('Request data contentType:', contentType);
+        
         response = await axios.post(
-          `${import.meta.env.VITE_API_URL}/parts`,
+          endpoint,
           data,
           {
             headers: {
@@ -169,21 +189,35 @@ function AppContent() {
       // Check if response is successful (status 200-299)
       if (response.status >= 200 && response.status < 300) {
         // Refresh stories to get updated data
-        smartFetchStories();
-        setModal({
-          show: true,
-          message: response.data.message || "Content added successfully!",
-        });
-        setTimeout(() => setModal({ show: false, message: "" }), 2000);
-        navigate("/my-stories");
+        if (!skipUIUpdates) {
+          smartFetchStories();
+          setModal({
+            show: true,
+            message: response.data.message || "Content added successfully!",
+          });
+          setTimeout(() => setModal({ show: false, message: "" }), 2000);
+          navigate("/my-stories");
+        } else {
+          // For sequential submissions, just refresh stories without UI updates
+          smartFetchStories();
+        }
+        return response; // Return response for sequential processing
       } else {
-        setModal({ show: true, message: "Failed to add part" });
+        if (!skipUIUpdates) {
+          setModal({ show: true, message: "Failed to add part" });
+        }
+        throw new Error("Failed to add part"); // Throw error for sequential processing
       }
     } catch (err) {
       console.error("Add part error:", err.response?.data || err.message);
-      setModal({ show: true, message: "Failed to add part" });
+      if (!skipUIUpdates) {
+        setModal({ show: true, message: "Failed to add part" });
+      }
+      throw err; // Re-throw error for sequential processing in Preview.jsx
     } finally {
-      setLoading("addPart", false);
+      if (!skipUIUpdates) {
+        setLoading("addPart", false);
+      }
     }
   };
 
@@ -236,8 +270,19 @@ function AppContent() {
     try {
       setLoading("updatePart", true, "Updating part...");
       const token = Cookies.get("token");
+      
+      // Use separate endpoints for different age groups
+      const contentType = formData.get('contentType');
+      let endpoint = `${import.meta.env.VITE_API_URL}/parts`; // Default for Adult
+      
+      if (contentType === 'child') {
+        endpoint = `${import.meta.env.VITE_API_URL}/child-parts`;
+      } else if (contentType === 'teen') {
+        endpoint = `${import.meta.env.VITE_API_URL}/teen-parts`;
+      }
+      
       const response = await axios.post(
-        `${import.meta.env.VITE_API_URL}/parts`,
+        endpoint,
         formData,
         {
           headers: {
@@ -277,12 +322,22 @@ function AppContent() {
     }
   };
 
-  const deletePart = async (storyId, partId) => {
+  const deletePart = async (storyId, partId, contentType = 'adult') => {
     try {
       setLoading("deletePart", true, "Deleting part...");
       const token = Cookies.get("token");
+      
+      // Use separate endpoints for different age groups
+      let endpoint = `${import.meta.env.VITE_API_URL}/parts/${storyId}/${partId}`; // Default for Adult
+      
+      if (contentType === 'child') {
+        endpoint = `${import.meta.env.VITE_API_URL}/child-parts/${storyId}/${partId}`;
+      } else if (contentType === 'teen') {
+        endpoint = `${import.meta.env.VITE_API_URL}/teen-parts/${storyId}/${partId}`;
+      }
+      
       await axios.delete(
-        `${import.meta.env.VITE_API_URL}/parts/${storyId}/${partId}`,
+        endpoint,
         {
           headers: { Authorization: `Bearer ${token}` },
         }

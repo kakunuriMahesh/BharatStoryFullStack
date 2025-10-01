@@ -44,6 +44,13 @@ const Agent = ({addStory, addPart, stories }) => {
   const [thumbnailImage, setThumbnailImage] = useState(null);
   const [thumbnailPreview, setThumbnailPreview] = useState(null);
   const [thumbnailError, setThumbnailError] = useState("");
+  const [contentMode, setContentMode] = useState("fresh"); // 'fresh' | 'adapt' | 'multi'
+  const [selectedParts, setSelectedParts] = useState([]);
+  const [availableParts, setAvailableParts] = useState([]);
+  const [multiAgeGroups, setMultiAgeGroups] = useState([]);
+  const [regenerateImages, setRegenerateImages] = useState(false);
+  const [adaptSourceAgeGroup, setAdaptSourceAgeGroup] = useState("");
+  const [selectedStoryData, setSelectedStoryData] = useState(null);
 
   // Load drafts on component mount and cleanup old ones
   useEffect(() => {
@@ -103,15 +110,60 @@ const Agent = ({addStory, addPart, stories }) => {
     proceedWithAIAgent();
   };
 
+  // Extract content from selected parts
+  const extractContentFromParts = () => {
+    if (selectedParts.length === 0) return { content: "", images: [] };
+    
+    const selectedPartObjects = availableParts.filter(part => 
+      selectedParts.includes(part.id)
+    );
+    
+    // Combine section texts from all selected parts
+    let combinedContent = "";
+    let images = [];
+    
+    selectedPartObjects.forEach((part, index) => {
+      if (part.part && Array.isArray(part.part)) {
+        part.part.forEach(section => {
+          // Extract text content from the part structure using selected language
+          const text = section.text?.[selectedLanguage] || section.text?.en || "";
+          if (text) {
+            combinedContent += text + " ";
+          }
+          
+          // Collect images if not regenerating
+          if (!regenerateImages && section.image) {
+            images.push(section.image);
+          }
+        });
+      }
+    });
+    
+    return { content: combinedContent.trim(), images };
+  };
+
   // Proceed with AI agent call after draft handling
   const proceedWithAIAgent = async (data) => {
     setLoading(true);
     setError("");
     setSections([]);
+    
+    let storyContentToUse = data.storyContent || formData.storyContent;
+    let existingImages = [];
+    
+    // If in adapt mode, extract content from selected parts
+    if (contentMode === "adapt" && selectedParts.length > 0) {
+      const extracted = extractContentFromParts();
+      storyContentToUse = extracted.content;
+      existingImages = extracted.images;
+    }
+    
     const payload = {
       ...formData,
-      storyContent: data.storyContent || formData.storyContent,
-      targetAgeGroup: data.targetAgeGroup || formData.targetAgeGroup,
+      storyContent: storyContentToUse,
+      targetAgeGroup: contentMode === "multi" 
+        ? multiAgeGroups 
+        : [data.targetAgeGroup || formData.targetAgeGroup],
       title: {
         en: data.titleEn || "",
         te: data.titleTe || "",
@@ -139,7 +191,16 @@ const Agent = ({addStory, addPart, stories }) => {
       },
       thumbnailImage: thumbnailImage ? URL.createObjectURL(thumbnailImage) : thumbnailPreview || "",
       partLanguages: partLanguages,
+      contentMode: contentMode,
+      multiAgeGroups: contentMode === "multi" ? multiAgeGroups : [],
+      regenerateImages: regenerateImages,
+      existingImages: existingImages,
+      adaptSourceAgeGroup: adaptSourceAgeGroup,
+      selectedLanguage: selectedLanguage,
     };
+    console.log("payloadChecked", payload);
+    // setLoading(false);
+    // return
     try {
       const response = await axios.post(
         "http://localhost:5678/webhook-test/84106ff3-afc7-4746-a04b-e3d380e637b7",
@@ -223,6 +284,13 @@ const Agent = ({addStory, addPart, stories }) => {
         console.log("Extracted sections:", extractedSections);
 
         if (extractedSections.length > 0) {
+          // Apply existing images if in adapt mode and not regenerating
+          if (contentMode === "adapt" && !regenerateImages && existingImages.length > 0) {
+            extractedSections = extractedSections.map((section, index) => ({
+              ...section,
+              image_gen: existingImages[index] || section.image_gen || ""
+            }));
+          }
           setSections(extractedSections);
         } else {
           setError("No valid sections found in AI agent response");
@@ -479,12 +547,84 @@ const Agent = ({addStory, addPart, stories }) => {
     });
   };
 
+  // Function to get missing required fields
+  const getMissingFields = () => {
+    const missing = [];
+    
+    // Check basic required fields
+    if (!formData.storyType?.en) missing.push("Story Type (English)");
+    if (!formData.title?.en) missing.push("Story Title (English)");
+    
+    // Check thumbnail
+    if (!thumbnailImage && !thumbnailPreview) missing.push("Thumbnail Image");
+    
+    // Check languages
+    if (partLanguages.length === 0) missing.push("Part Languages");
+    
+    // Check target age group for fresh and adapt modes
+    if ((contentMode === "fresh" || contentMode === "adapt") && !formData.targetAgeGroup) {
+      missing.push("Target Age Group");
+    }
+    
+    // Check content mode specific requirements
+    if (contentMode === "fresh" || contentMode === "multi") {
+      if (!formData.storyContent?.trim()) missing.push("Story Content");
+    }
+    
+    if (contentMode === "adapt") {
+      if (selectedParts.length === 0) missing.push("Existing Parts Selection");
+    }
+    
+    if (contentMode === "multi") {
+      if (multiAgeGroups.length === 0) missing.push("Age Groups Selection");
+      else if (!multiAgeGroups.includes("18+")) missing.push("Adult (18+) Age Group");
+      else if (multiAgeGroups.length < 2) missing.push("Additional Age Group");
+    }
+    
+    return missing;
+  };
+
+  // Function to check if form is valid for submission
+  const isFormValid = () => {
+    return getMissingFields().length === 0;
+  };
+
   // Function to call the n8n AI agent
   const triggerAIAgent = async (data) => {
+    // Validation based on content mode
+    if (contentMode === "fresh") {
     if (!data.storyContent.trim()) {
       setError("Please enter some story content first.");
       return;
     }
+    } else if (contentMode === "adapt") {
+      if (selectedParts.length === 0) {
+        setError("Please select at least one existing part to adapt from.");
+        return;
+      }
+      if (!data.targetAgeGroup) {
+        setError("Please select a target age group.");
+        return;
+      }
+    } else if (contentMode === "multi") {
+      if (!data.storyContent.trim()) {
+        setError("Please enter some story content first.");
+        return;
+      }
+      if (multiAgeGroups.length === 0) {
+        setError("Please select at least one age group for multi-generation.");
+        return;
+      }
+      if (!multiAgeGroups.includes("18+")) {
+        setError("Adult (18+) age group is mandatory for multi-generation. Please select Adult along with other age groups.");
+        return;
+      }
+      if (multiAgeGroups.length < 2) {
+        setError("Please select at least one additional age group along with Adult.");
+        return;
+      }
+    }
+    
     if (!thumbnailImage && !thumbnailPreview) {
       setThumbnailError("Thumbnail Image is required");
       return;
@@ -617,8 +757,11 @@ const Agent = ({addStory, addPart, stories }) => {
 
     if (value === "addNewStory") {
       setIsModalOpen(true);
+      setSelectedStoryData(null);
     } else {
       const selected = stories.find((s) => s.name.en === value);
+      setSelectedStoryData(selected);
+      
       const availableLanguages = [];
       if (selected?.name.en) availableLanguages.push("en");
       if (selected?.name.te) availableLanguages.push("te");
@@ -628,6 +771,130 @@ const Agent = ({addStory, addPart, stories }) => {
       setSelectedLanguage("en");
     }
   };
+  
+  // Handle part selection for adapt mode
+  const handlePartSelection = (partId) => {
+    setSelectedParts(prev => {
+      if (prev.includes(partId)) {
+        return prev.filter(id => id !== partId);
+      } else if (prev.length < 3) {
+        return [...prev, partId];
+      } else {
+        setError("You can select maximum 3 parts at a time");
+        return prev;
+      }
+    });
+  };
+  
+  // Handle multi-age group selection
+  const toggleMultiAgeGroup = (ageGroup) => {
+    setMultiAgeGroups(prev => {
+      if (prev.includes(ageGroup)) {
+        return prev.filter(ag => ag !== ageGroup);
+      } else {
+        return [...prev, ageGroup];
+      }
+    });
+  };
+
+  // Set default regenerateImages based on age group and reset content mode if needed
+  useEffect(() => {
+    if (formData.targetAgeGroup) {
+      if (['3-5', '6-8'].includes(formData.targetAgeGroup)) {
+        setRegenerateImages(true); // Default ON for kids and toddlers
+        // If current mode is multi and not available for this age group, reset to fresh
+        if (contentMode === "multi") {
+          setContentMode("fresh");
+          setMultiAgeGroups([]);
+        }
+      } else {
+        setRegenerateImages(false); // Default OFF for older age groups
+      }
+    }
+  }, [formData.targetAgeGroup, contentMode]);
+
+  // Auto-select available language when story changes
+  useEffect(() => {
+    if (selectedStoryData) {
+      const availableLanguages = [];
+      if (selectedStoryData?.name?.en) availableLanguages.push('en');
+      if (selectedStoryData?.name?.te) availableLanguages.push('te');
+      if (selectedStoryData?.name?.hi) availableLanguages.push('hi');
+      
+      // If current selected language is not available, switch to first available
+      if (availableLanguages.length > 0 && !availableLanguages.includes(selectedLanguage)) {
+        setSelectedLanguage(availableLanguages[0]);
+      }
+    }
+  }, [selectedStoryData]); // Removed selectedLanguage from dependencies to prevent infinite loop
+
+  // Filter available parts based on selected language
+  useEffect(() => {
+    if (selectedStoryData?.parts?.card) {
+      const allParts = selectedStoryData.parts.card.filter(part => {
+        // Only include parts that have meaningful content
+        if (!part.part || part.part.length === 0) return false;
+        
+        // Check if part has a meaningful title in any language
+        const hasTitle = part.title?.en || part.title?.te || part.title?.hi;
+        
+        // Check if part has actual text content in any language
+        const hasContent = part.part.some(section => 
+          section.text?.en || section.text?.te || section.text?.hi
+        );
+        
+        return hasTitle && hasContent;
+      });
+
+      // Now filter based on selected language
+      const languageFilteredParts = allParts.filter(part => {
+        // Check if part has content in the selected language
+        const hasTitleInLanguage = part.title?.[selectedLanguage];
+        const hasContentInLanguage = part.part.some(section => 
+          section.text?.[selectedLanguage]
+        );
+        
+        return hasTitleInLanguage && hasContentInLanguage;
+      });
+
+      setAvailableParts(languageFilteredParts);
+    } else {
+      setAvailableParts([]);
+    }
+  }, [selectedStoryData, selectedLanguage]);
+
+  // Auto-populate title when only 1 part is selected in adapt mode (for specific age groups)
+  useEffect(() => {
+    if (contentMode === "adapt" && 
+        selectedParts.length === 1 && 
+        ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup) &&
+        selectedStoryData) {
+      
+      const selectedPart = selectedStoryData.parts.card.find(part => part.id === selectedParts[0]);
+      
+      if (selectedPart && selectedPart.title) {
+        // Auto-populate title in all available languages
+        const newFormData = { ...formData };
+        
+        if (selectedPart.title.en) {
+          newFormData.title.en = selectedPart.title.en;
+        }
+        if (selectedPart.title.te) {
+          newFormData.title.te = selectedPart.title.te;
+        }
+        if (selectedPart.title.hi) {
+          newFormData.title.hi = selectedPart.title.hi;
+        }
+        
+        setFormData(newFormData);
+        
+        // Also update the form values for react-hook-form
+        if (selectedPart.title.en) setValue("titleEn", selectedPart.title.en);
+        if (selectedPart.title.te) setValue("titleTe", selectedPart.title.te);
+        if (selectedPart.title.hi) setValue("titleHi", selectedPart.title.hi);
+      }
+    }
+  }, [selectedParts, contentMode, formData.targetAgeGroup, selectedStoryData, setValue]);
 
   const handleModalClose = () => {
     setIsModalOpen(false);
@@ -672,7 +939,7 @@ const Agent = ({addStory, addPart, stories }) => {
           {selectedStory && storyLanguages.length > 0 && (
             <>
               <div className="mb-4">
-                <label className="block font-semibold text-gray-300 mb-2">Languages for this Part:</label>
+                <label className="block font-semibold text-gray-300 mb-2">Languages for this Part: *</label>
                 <div className="flex space-x-4">
                   <label className="flex items-center">
                     <input
@@ -712,16 +979,33 @@ const Agent = ({addStory, addPart, stories }) => {
                 )}
               </div>
               <h3 className="text-xl font-semibold mb-4 text-white">Card Details</h3>
+              
+              {/* Auto-populated title message */}
+              {contentMode === "adapt" && 
+               selectedParts.length === 1 && 
+               ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup) && (
+                <div className="mb-4 p-3 bg-blue-900/30 border border-blue-500/50 rounded-lg">
+                  <p className="text-sm text-blue-300">
+                    <span className="font-semibold">📝 Auto-populated:</span> Title has been automatically filled from the selected part and is locked for editing.
+                  </p>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 {partLanguages.includes("en") && (
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-1">Title (English)</label>
+                    <label className="block text-sm font-medium text-gray-300 mb-1">Title (English) *</label>
                     <div className="relative">
                       <Languages size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
                         {...register("titleEn", { required: partLanguages.includes("en") ? "Title (English) is required" : false })}
-                        className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className={`w-full p-3 pl-10 border rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          (contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup))
+                            ? "bg-gray-600 border-gray-500 cursor-not-allowed"
+                            : "bg-gray-700 border-gray-600"
+                        }`}
                         onChange={(e) => handleInputChange(e, "title", "en")}
+                        disabled={contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup)}
+                        value={formData.title?.en || ""}
                       />
                       {errors.titleEn && (
                         <p className="text-red-400 text-sm mt-1">{errors.titleEn.message}</p>
@@ -764,7 +1048,7 @@ const Agent = ({addStory, addPart, stories }) => {
                         <p className="text-red-400 text-sm mt-1">{errors.timeToReadEn.message}</p>
                       )}
                     </div>
-                    <label className="block text-sm font-medium text-gray-300 mt-2 mb-1">Story Type (English)</label>
+                    <label className="block text-sm font-medium text-gray-300 mt-2 mb-1">Story Type (English) *</label>
                     <div className="relative">
                       <Type size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
@@ -785,8 +1069,14 @@ const Agent = ({addStory, addPart, stories }) => {
                       <Languages size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
                         {...register("titleTe", { required: partLanguages.includes("te") ? "Title (Telugu) is required" : false })}
-                        className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className={`w-full p-3 pl-10 border rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          (contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup))
+                            ? "bg-gray-600 border-gray-500 cursor-not-allowed"
+                            : "bg-gray-700 border-gray-600"
+                        }`}
                         onChange={(e) => handleInputChange(e, "title", "te")}
+                        disabled={contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup)}
+                        value={formData.title?.te || ""}
                       />
                       {errors.titleTe && (
                         <p className="text-red-400 text-sm mt-1">{errors.titleTe.message}</p>
@@ -829,7 +1119,7 @@ const Agent = ({addStory, addPart, stories }) => {
                         <p className="text-red-400 text-sm mt-1">{errors.timeToReadTe.message}</p>
                       )}
                     </div>
-                    <label className="block text-sm font-medium text-gray-300 mt-2 mb-1">Story Type (Telugu)</label>
+                    <label className="block text-sm font-medium text-gray-300 mt-2 mb-1">Story Type (Telugu) *</label>
                     <div className="relative">
                       <Type size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
@@ -850,8 +1140,14 @@ const Agent = ({addStory, addPart, stories }) => {
                       <Languages size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
                         {...register("titleHi", { required: partLanguages.includes("hi") ? "Title (Hindi) is required" : false })}
-                        className="w-full p-3 pl-10 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                        className={`w-full p-3 pl-10 border rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                          (contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup))
+                            ? "bg-gray-600 border-gray-500 cursor-not-allowed"
+                            : "bg-gray-700 border-gray-600"
+                        }`}
                         onChange={(e) => handleInputChange(e, "title", "hi")}
+                        disabled={contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup)}
+                        value={formData.title?.hi || ""}
                       />
                       {errors.titleHi && (
                         <p className="text-red-400 text-sm mt-1">{errors.titleHi.message}</p>
@@ -894,7 +1190,7 @@ const Agent = ({addStory, addPart, stories }) => {
                         <p className="text-red-400 text-sm mt-1">{errors.timeToReadHi.message}</p>
                       )}
                     </div>
-                    <label className="block text-sm font-medium text-gray-300 mt-2 mb-1">Story Type (Hindi)</label>
+                    <label className="block text-sm font-medium text-gray-300 mt-2 mb-1">Story Type (Hindi) *</label>
                     <div className="relative">
                       <Type size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                       <input
@@ -910,7 +1206,7 @@ const Agent = ({addStory, addPart, stories }) => {
                 )}
               </div>
               <div className="mb-6">
-                <label className="block text-sm font-medium text-gray-300 mb-1">Thumbnail Image</label>
+                <label className="block text-sm font-medium text-gray-300 mb-1">Thumbnail Image *</label>
                 <div className="relative">
                   <ImageIcon size={20} className="absolute left-2 top-1/2 transform -translate-y-1/2 text-gray-400" />
                   <input
@@ -942,29 +1238,47 @@ const Agent = ({addStory, addPart, stories }) => {
           )}
 
           <div className="bg-gray-800 rounded-xl shadow-2xl p-6 mb-8">
+
+            
+            {/* Show selected age groups for multi mode */}
+            {contentMode === "multi" && (
             <div className="field-group mb-6">
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Story Content:
+                  Target Age Groups:
               </label>
-              <textarea
-                {...register("storyContent", { required: "Story Content is required" })}
-                className="w-full p-4 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-                placeholder="Enter your story content here..."
-                value={formData.storyContent}
-                onChange={(e) => handleInputChange(e, "storyContent")}
-                rows={6}
-              />
-              {errors.storyContent && (
-                <p className="text-red-400 text-sm mt-1">{errors.storyContent.message}</p>
+                <div className="p-4 bg-gray-700 border border-gray-600 rounded-lg text-gray-300">
+                  {multiAgeGroups.length === 0 ? (
+                    <p className="text-gray-400 italic">No age groups selected. Please select age groups from above.</p>
+                  ) : (
+                    <div className="flex flex-wrap gap-2">
+                      {multiAgeGroups.map(ag => {
+                        const labels = {
+                          "9-12": "Child (9-12 years)",
+                          "13-18": "Teenager (13-18 years)",
+                          "18+": "Adult (18+ years)"
+                        };
+                        return (
+                          <span key={ag} className="px-3 py-1 bg-indigo-600 text-white rounded-full text-sm">
+                            {labels[ag]}
+                          </span>
+                        );
+                      })}
+                    </div>
               )}
             </div>
+              </div>
+            )}
 
+            {/* Show Target Age Group only for fresh and adapt modes */}
+            {(contentMode === "fresh" || contentMode === "adapt") && (
             <div className="field-group mb-6">
               <label className="block text-sm font-medium text-gray-300 mb-2">
-                Target Age Group:
+                  Target Age Group: *
               </label>
               <select
-                {...register("targetAgeGroup", { required: "Target Age Group is required" })}
+                  {...register("targetAgeGroup", { 
+                    required: (contentMode === "fresh" || contentMode === "adapt") ? "Target Age Group is required" : false 
+                  })}
                 className="w-full p-3 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
                 value={formData.targetAgeGroup}
                 onChange={(e) => handleInputChange(e, "targetAgeGroup")}
@@ -978,8 +1292,316 @@ const Agent = ({addStory, addPart, stories }) => {
               </select>
               {errors.targetAgeGroup && (
                 <p className="text-red-400 text-sm mt-1">{errors.targetAgeGroup.message}</p>
+                )}
+              </div>
+            )}
+
+            {/* NEW FEATURES - Show for all age groups except with different options */}
+            {formData.targetAgeGroup && ['3-5', '6-8', '9-12', '13-18', '18+'].includes(formData.targetAgeGroup) && (
+              <>
+                {/* Content Generation Mode Selector */}
+                <div className="mb-6 bg-gray-700 p-4 rounded-lg">
+                  <label className="block font-semibold text-gray-300 mb-3">Content Generation Mode:</label>
+                  <div className={`grid grid-cols-1 gap-4 ${['3-5', '6-8'].includes(formData.targetAgeGroup) ? 'md:grid-cols-2' : 'md:grid-cols-3'}`}>
+                    <div
+                      onClick={() => {
+                        setContentMode("fresh");
+                        setSelectedParts([]);
+                        setMultiAgeGroups([]);
+                      }}
+                      className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                        contentMode === "fresh"
+                          ? "border-indigo-500 bg-indigo-900/30"
+                          : "border-gray-600 bg-gray-800 hover:border-gray-500"
+                      }`}
+                    >
+                      <div className="flex items-center mb-2">
+                        <input
+                          type="radio"
+                          checked={contentMode === "fresh"}
+                          onChange={() => {}}
+                          className="mr-2"
+                        />
+                        <span className="font-semibold text-white">Fresh Content</span>
+                      </div>
+                      <p className="text-sm text-gray-400">Create new content from scratch with original text and images</p>
+                    </div>
+
+                    <div
+                      onClick={() => {
+                        setContentMode("adapt");
+                        setMultiAgeGroups([]);
+                      }}
+                      className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                        contentMode === "adapt"
+                          ? "border-indigo-500 bg-indigo-900/30"
+                          : "border-gray-600 bg-gray-800 hover:border-gray-500"
+                      }`}
+                    >
+                      <div className="flex items-center mb-2">
+                        <input
+                          type="radio"
+                          checked={contentMode === "adapt"}
+                          onChange={() => {}}
+                          className="mr-2"
+                        />
+                        <span className="font-semibold text-white">Adapt Existing</span>
+                      </div>
+                      <p className="text-sm text-gray-400">Reuse existing content and images, regenerate text for different age group</p>
+                    </div>
+
+                    {/* Multi-Age Generation - Only show for older age groups */}
+                    {!['3-5', '6-8'].includes(formData.targetAgeGroup) && (
+                      <div
+                        onClick={() => {
+                          setContentMode("multi");
+                          setSelectedParts([]);
+                        }}
+                        className={`p-4 rounded-lg border-2 cursor-pointer transition-all ${
+                          contentMode === "multi"
+                            ? "border-indigo-500 bg-indigo-900/30"
+                            : "border-gray-600 bg-gray-800 hover:border-gray-500"
+                        }`}
+                      >
+                        <div className="flex items-center mb-2">
+                          <input
+                            type="radio"
+                            checked={contentMode === "multi"}
+                            onChange={() => {}}
+                            className="mr-2"
+                          />
+                          <span className="font-semibold text-white">Multi-Age Generation</span>
+                        </div>
+                        <p className="text-sm text-gray-400">Generate content for multiple age groups at once</p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Adapt Mode: Part Selection */}
+                {contentMode === "adapt" && (
+                  <div className="mb-6 bg-gray-700 p-4 rounded-lg">
+                    <label className="block font-semibold text-gray-300 mb-3">
+                      Select Existing Parts to Adapt From (Max 3):
+                    </label>
+                    
+                    {/* Language Selection - Always visible */}
+                    <div className="mb-4">
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                        Select Language for Content:
+                  </label>
+                      <div className="flex gap-4">
+                        {(() => {
+                          // Get available languages from the selected story
+                          const availableLanguages = [];
+                          if (selectedStoryData?.name?.en) availableLanguages.push({ code: 'en', name: 'English' });
+                          if (selectedStoryData?.name?.te) availableLanguages.push({ code: 'te', name: 'Telugu' });
+                          if (selectedStoryData?.name?.hi) availableLanguages.push({ code: 'hi', name: 'Hindi' });
+                          
+                          // If no languages found, default to English
+                          if (availableLanguages.length === 0) {
+                            availableLanguages.push({ code: 'en', name: 'English' });
+                          }
+                          
+                          return availableLanguages.map((lang) => (
+                            <label key={lang.code} className="flex items-center">
+                        <input
+                                type="radio"
+                                name="contentLanguage"
+                                value={lang.code}
+                                checked={selectedLanguage === lang.code}
+                                onChange={(e) => setSelectedLanguage(e.target.value)}
+                          className="mr-2"
+                        />
+                              <span className="text-gray-300">{lang.name}</span>
+                      </label>
+                          ));
+                        })()}
+                      </div>
+                    </div>
+                    
+                    {availableParts.length === 0 ? (
+                      <div className="text-center py-8">
+                        <p className="text-gray-400 mb-2">No parts with content found in {selectedLanguage === 'en' ? 'English' : selectedLanguage === 'te' ? 'Telugu' : 'Hindi'}</p>
+                        <p className="text-sm text-gray-500">
+                          Try switching to a different language to see if content is available.
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-60 overflow-y-auto">
+                      {availableParts.map((part) => (
+                        <div
+                          key={part.id}
+                          onClick={() => handlePartSelection(part.id)}
+                          className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                            selectedParts.includes(part.id)
+                              ? "border-indigo-500 bg-indigo-900/30"
+                              : "border-gray-600 bg-gray-800 hover:border-gray-500"
+                          }`}
+                        >
+                          <div className="flex items-start">
+                            <input
+                              type="checkbox"
+                              checked={selectedParts.includes(part.id)}
+                              onChange={() => {}}
+                              className="mr-2 mt-1"
+                              disabled={!selectedParts.includes(part.id) && selectedParts.length >= 3}
+                            />
+                            <div className="flex-1">
+                              <div className="font-semibold text-white">
+                                {part.title?.[selectedLanguage] || "Untitled Part"}
+                              </div>
+                              <div className="text-sm text-gray-400">
+                                {part.part?.length || 0} sections
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                        <p className="text-sm text-gray-400 mt-3">
+                          Selected: {selectedParts.length}/3 parts
+                        </p>
+                      </>
+                    )}
+                  </div>
+                )}
+
+                {/* Multi Mode: Age Group Selection */}
+                {contentMode === "multi" && (
+                  <div className="mb-6 bg-gray-700 p-4 rounded-lg">
+                    <label className="block font-semibold text-gray-300 mb-3">
+                      Select Age Groups to Generate For:
+                    </label>
+                    <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                      {[
+                        { value: "9-12", label: "Child (9-12 years)" },
+                        { value: "13-18", label: "Teenager (13-18 years)" },
+                        { value: "18+", label: "Adult (18+ years) *" }
+                      ].map(({ value, label }) => (
+                        <div
+                          key={value}
+                          onClick={() => toggleMultiAgeGroup(value)}
+                          className={`p-3 rounded-lg border cursor-pointer transition-all ${
+                            multiAgeGroups.includes(value)
+                              ? "border-indigo-500 bg-indigo-900/30"
+                              : "border-gray-600 bg-gray-800 hover:border-gray-500"
+                          } ${value === "18+" ? "ring-2 ring-yellow-500/50" : ""}`}
+                        >
+                          <div className="flex items-center">
+                        <input
+                          type="checkbox"
+                              checked={multiAgeGroups.includes(value)}
+                              onChange={() => {}}
+                          className="mr-2"
+                        />
+                            <span className={`text-white ${value === "18+" ? "font-semibold" : ""}`}>
+                              {label}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="mt-3">
+                      <p className="text-sm text-yellow-400 mb-2">
+                        <span className="font-semibold">* Adult (18+) is mandatory</span> - You must select Adult along with at least one other age group.
+                      </p>
+                      <p className="text-sm text-gray-400">
+                        Images will be generated once and reused across all selected age groups.
+                      </p>
+                      {multiAgeGroups.length > 0 && !multiAgeGroups.includes("18+") && (
+                        <p className="text-red-400 text-sm mt-2 font-semibold">
+                          ⚠️ Adult (18+) age group is required!
+                        </p>
+                      )}
+                      {multiAgeGroups.includes("18+") && multiAgeGroups.length < 2 && (
+                        <p className="text-red-400 text-sm mt-2 font-semibold">
+                          ⚠️ Please select at least one additional age group along with Adult.
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Generate Images Toggle */}
+                <div className="mb-6 bg-gray-700 p-4 rounded-lg">
+                  <div className="flex items-center">
+                        <input
+                          type="checkbox"
+                      id="generateImages"
+                      checked={regenerateImages}
+                      onChange={(e) => setRegenerateImages(e.target.checked)}
+                          className="mr-2"
+                        />
+                    <label htmlFor="generateImages" className="text-gray-300 cursor-pointer">
+                      <span className="font-semibold">Generate Images</span>
+                      <span className="text-sm text-gray-400 ml-2">
+                        {['3-5', '6-8'].includes(formData.targetAgeGroup) 
+                          ? "(Default: ON - New images will be generated for this age group)"
+                          : "(Default: OFF - Images will be reused from existing content)"
+                        }
+                      </span>
+                      </label>
+                  </div>
+                </div>
+
+                {/* Show info for adapt mode */}
+                {contentMode === "adapt" && (
+                  <div className="field-group mb-6">
+                    <label className="block text-sm font-medium text-gray-300 mb-2">
+                      Content Source:
+                    </label>
+                    <div className="p-4 bg-gray-700 border border-gray-600 rounded-lg text-gray-300">
+                      {selectedParts.length === 0 ? (
+                        <p className="text-gray-400 italic">No parts selected. Please select parts from above to adapt content.</p>
+                      ) : (
+                        <div>
+                          <p className="font-semibold mb-2">Content will be adapted from {selectedParts.length} selected part(s):</p>
+                          <ul className="list-disc list-inside space-y-1">
+                            {availableParts
+                              .filter(part => selectedParts.includes(part.id))
+                              .map(part => (
+                                <li key={part.id} className="text-sm">
+                                  {part.title?.en || `Part ${part.id}`} 
+                                  <span className="text-gray-400 ml-2">({part.part?.length || 0} sections)</span>
+                                </li>
+                              ))
+                            }
+                          </ul>
+                          <p className="text-sm text-gray-400 mt-3">
+                            ℹ️ The AI will regenerate text content suitable for the selected age group while {regenerateImages ? 'generating new' : 'reusing existing'} images.
+                  </p>
+                </div>
               )}
             </div>
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Show Story Content input only for fresh and multi modes */}
+            {(contentMode === "fresh" || contentMode === "multi") && (
+              <div className="field-group mb-6">
+                  <label className="block text-sm font-medium text-gray-300 mb-2">
+                    Story Content: *
+                  </label>
+                <textarea
+                  {...register("storyContent", { 
+                    required: (contentMode === "fresh" || contentMode === "multi") ? "Story Content is required" : false 
+                  })}
+                  className="w-full p-4 bg-gray-700 border border-gray-600 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                  placeholder="Enter your story content here..."
+                  value={formData.storyContent}
+                  onChange={(e) => handleInputChange(e, "storyContent")}
+                  rows={6}
+                />
+                {errors.storyContent && (
+                  <p className="text-red-400 text-sm mt-1">{errors.storyContent.message}</p>
+                )}
+              </div>
+            )}
 
             <div className="field-group mb-6">
               <label className="block text-sm font-medium text-gray-300 mb-2">
@@ -1011,13 +1633,36 @@ const Agent = ({addStory, addPart, stories }) => {
               </small>
             </div>
 
+            {/* Missing Fields Message */}
+            {!isFormValid() && getMissingFields().length > 0 && (
+              <div className="mb-4 p-3 bg-gray-800 border border-gray-600 rounded-lg">
+                <p className="text-sm text-gray-400 mb-2">
+                  <span className="font-semibold">Missing required fields:</span>
+                </p>
+                <div className="flex flex-wrap gap-2">
+                  {getMissingFields().map((field, index) => (
+                    <span key={index} className="px-2 py-1 bg-red-900/50 text-red-300 rounded text-xs">
+                      {field}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex gap-4">
               <ButtonLoader
                 type="submit"
                 loading={loading}
-                className="flex-1 py-3 px-6 rounded-lg font-semibold transition-colors duration-200 bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                disabled={!isFormValid()}
+                className={`flex-1 py-3 px-6 rounded-lg font-semibold transition-colors duration-200 ${
+                  isFormValid() 
+                    ? "bg-indigo-600 hover:bg-indigo-700 text-white" 
+                    : "bg-gray-600 text-gray-400 cursor-not-allowed"
+                } disabled:opacity-50 disabled:cursor-not-allowed`}
               >
-                Submit Story
+                {contentMode === "fresh" && "Generate Content"}
+                {contentMode === "adapt" && "Adapt Content"}
+                {contentMode === "multi" && `Generate for ${multiAgeGroups.length} Age Group${multiAgeGroups.length !== 1 ? 's' : ''}`}
               </ButtonLoader>
               <button
                 type="button"
@@ -1416,3 +2061,4 @@ const Agent = ({addStory, addPart, stories }) => {
 };
 
 export default Agent;
+

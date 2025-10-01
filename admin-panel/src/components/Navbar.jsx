@@ -109,27 +109,41 @@ const Navbar = ({ stories, onSearch }) => {
               <BookOpen size={20} /> My Stories ({stories.length}) <ChevronDown size={18} />
             </button>
             {isDropdownOpen && (
-              <div className="absolute right-0  w-48 bg-white rounded shadow-lg z-20">
+              <div className="absolute right-0 w-48 bg-white rounded shadow-lg z-20">
                 <Link
                   to="/my-stories"
                   className="block px-4 py-2 text-gray-700 hover:bg-gray-100"
                   onClick={() => setIsDropdownOpen(false)}
                 >
-                  All Stories
+                  Adult (18+)
                 </Link>
                 <Link
-                  to="/stories/toddler"
+                  to="/stories/teen"
                   className="block px-4 py-2 text-gray-700 hover:bg-gray-100"
                   onClick={() => setIsDropdownOpen(false)}
                 >
-                  Toddler
+                  Teen (13-18)
+                </Link>
+                <Link
+                  to="/stories/child"
+                  className="block px-4 py-2 text-gray-700 hover:bg-gray-100"
+                  onClick={() => setIsDropdownOpen(false)}
+                >
+                  Child (9-12)
                 </Link>
                 <Link
                   to="/stories/kids"
                   className="block px-4 py-2 text-gray-700 hover:bg-gray-100"
                   onClick={() => setIsDropdownOpen(false)}
                 >
-                  Kids
+                  Kids (6-8)
+                </Link>
+                <Link
+                  to="/stories/toddler"
+                  className="block px-4 py-2 text-gray-700 hover:bg-gray-100"
+                  onClick={() => setIsDropdownOpen(false)}
+                >
+                  Toddler (3-5)
                 </Link>
               </div>
             )}
