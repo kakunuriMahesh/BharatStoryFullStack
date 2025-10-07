@@ -41,12 +41,36 @@ const Navbar = ({ stories, onSearch }) => {
       );
     });
 
+    // Check if any child title or sub-part heading matches
+    const childMatch = (story?.child?.card || []).some((child) => {
+      const childTitleEn = child?.title?.en || ""; // Fallback to empty string
+      const childSubPartsMatch = (child?.part || []).some((subPart) => {
+        const subPartHeadingEn = subPart?.heading?.en || ""; // Fallback to empty string
+        return subPartHeadingEn.toLowerCase().includes(queryLower);
+      });
+      return (
+        childTitleEn.toLowerCase().includes(queryLower) || childSubPartsMatch
+      );
+    });
+
+    // Check if any teen title or sub-part heading matches
+    const teenMatch = (story?.teen?.card || []).some((teen) => {
+      const teenTitleEn = teen?.title?.en || ""; // Fallback to empty string
+      const teenSubPartsMatch = (teen?.part || []).some((subPart) => {
+        const subPartHeadingEn = subPart?.heading?.en || ""; // Fallback to empty string
+        return subPartHeadingEn.toLowerCase().includes(queryLower);
+      });
+      return (
+        teenTitleEn.toLowerCase().includes(queryLower) || teenSubPartsMatch
+      );
+    });
+
     if (selectedStory) {
       return (
-        storyNameEn === selectedStory && (storyNameMatches || partsMatch)
+        storyNameEn === selectedStory && (storyNameMatches || partsMatch || childMatch || teenMatch)
       );
     }
-    return storyNameMatches || partsMatch;
+    return storyNameMatches || partsMatch || childMatch || teenMatch;
   });
 
   return (
@@ -82,17 +106,50 @@ const Navbar = ({ stories, onSearch }) => {
             {searchQuery && (
               <div className="absolute top-12 left-0 bg-white shadow-lg rounded w-full max-h-60 overflow-y-auto z-10">
                 {filteredStories.length > 0 ? (
-                  filteredStories.map((story) =>
-                    (story?.parts?.card || []).map((part) => (
-                      <div
-                        key={part.id}
-                        onClick={() => handleSearchSelect(story.name.en, part.id)}
-                        className="p-2 hover:bg-gray-100 cursor-pointer"
-                      >
-                        {part?.title?.en || "Untitled Part"} ({story?.name?.en || "Unnamed Story"})
-                      </div>
-                    ))
-                  )
+                  filteredStories.map((story) => {
+                    const results = [];
+                    
+                    // Adult parts
+                    (story?.parts?.card || []).forEach((part) => {
+                      results.push(
+                        <div
+                          key={`adult-${part.id}`}
+                          onClick={() => handleSearchSelect(story.name.en, part.id)}
+                          className="p-2 hover:bg-gray-100 cursor-pointer"
+                        >
+                          {part?.title?.en || "Untitled Part"} (Adult) - {story?.name?.en || "Unnamed Story"}
+                        </div>
+                      );
+                    });
+                    
+                    // Child parts
+                    (story?.child?.card || []).forEach((child) => {
+                      results.push(
+                        <div
+                          key={`child-${child.id}`}
+                          onClick={() => window.open(`/edit-child/${story.id}/${child.id}`, '_blank')}
+                          className="p-2 hover:bg-gray-100 cursor-pointer"
+                        >
+                          {child?.title?.en || "Untitled Child Part"} (Child) - {story?.name?.en || "Unnamed Story"}
+                        </div>
+                      );
+                    });
+                    
+                    // Teen parts
+                    (story?.teen?.card || []).forEach((teen) => {
+                      results.push(
+                        <div
+                          key={`teen-${teen.id}`}
+                          onClick={() => window.open(`/edit-teen/${story.id}/${teen.id}`, '_blank')}
+                          className="p-2 hover:bg-gray-100 cursor-pointer"
+                        >
+                          {teen?.title?.en || "Untitled Teen Part"} (Teen) - {story?.name?.en || "Unnamed Story"}
+                        </div>
+                      );
+                    });
+                    
+                    return results;
+                  })
                 ) : (
                   <div className="p-2 text-gray-500">No matching stories or parts</div>
                 )}

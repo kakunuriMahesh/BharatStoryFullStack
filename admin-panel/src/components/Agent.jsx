@@ -551,9 +551,13 @@ const Agent = ({addStory, addPart, stories }) => {
   const getMissingFields = () => {
     const missing = [];
     
-    // Check basic required fields
-    if (!formData.storyType?.en) missing.push("Story Type (English)");
-    if (!formData.title?.en) missing.push("Story Title (English)");
+    // Check basic required fields only for selected languages
+    if (partLanguages.includes("en") && !formData.storyType?.en) missing.push("Story Type (English)");
+    if (partLanguages.includes("en") && !formData.title?.en) missing.push("Story Title (English)");
+    if (partLanguages.includes("te") && !formData.storyType?.te) missing.push("Story Type (Telugu)");
+    if (partLanguages.includes("te") && !formData.title?.te) missing.push("Story Title (Telugu)");
+    if (partLanguages.includes("hi") && !formData.storyType?.hi) missing.push("Story Type (Hindi)");
+    if (partLanguages.includes("hi") && !formData.title?.hi) missing.push("Story Title (Hindi)");
     
     // Check thumbnail
     if (!thumbnailImage && !thumbnailPreview) missing.push("Thumbnail Image");

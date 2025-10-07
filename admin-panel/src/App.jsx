@@ -9,10 +9,14 @@ import Home from "./pages/Home";
 import MyStories from "./pages/MyStories";
 import ToddlerStories from "./pages/ToddlerStories";
 import KidsStories from "./pages/KidsStories";
+import ChildStories from "./pages/ChildStories";
+import TeenStories from "./pages/TeenStories";
 import StoryForm from "./components/StoryForm";
 import EditStoryForm from "./components/EditStoryForm";
 import EditKidForm from "./components/EditKidForm";
 import EditToddlerForm from "./components/EditToddlerForm";
+import EditChild from "./components/EditChild";
+import EditTeen from "./components/EditTeen";
 import PartForm from "./components/PartForm";
 import Login from "./pages/Login";
 import NotifySubscribers from "./pages/notifySubscribers";
@@ -480,6 +484,22 @@ function AppContent() {
             </ErrorBoundary>
           }
         />
+        <Route
+          path="/stories/child"
+          element={
+            <ErrorBoundary>
+              <ChildStories stories={filteredStories} deletePart={deletePart} />
+            </ErrorBoundary>
+          }
+        />
+        <Route
+          path="/stories/teen"
+          element={
+            <ErrorBoundary>
+              <TeenStories stories={filteredStories} deletePart={deletePart} />
+            </ErrorBoundary>
+          }
+        />
         <Route path="/add-story" element={<StoryForm addStory={addStory} />} />
         <Route
           path="/edit-story/:id"
@@ -505,6 +525,26 @@ function AppContent() {
             <EditToddlerForm
               updateAgeContent={updateAgeContent}
               deleteAgeContent={deleteAgeContent}
+            />
+          }
+        />
+        <Route
+          path="/edit-child/:storyId/:childId"
+          element={
+            <EditChild
+              stories={filteredStories}
+              updatePart={updatePart}
+              deletePart={deletePart}
+            />
+          }
+        />
+        <Route
+          path="/edit-teen/:storyId/:teenId"
+          element={
+            <EditTeen
+              stories={filteredStories}
+              updatePart={updatePart}
+              deletePart={deletePart}
             />
           }
         />
