@@ -51,6 +51,8 @@ const Agent = ({addStory, addPart, stories }) => {
   const [regenerateImages, setRegenerateImages] = useState(false);
   const [adaptSourceAgeGroup, setAdaptSourceAgeGroup] = useState("");
   const [selectedStoryData, setSelectedStoryData] = useState(null);
+  const [existingTargetCards, setExistingTargetCards] = useState([]); // Existing cards for target age group
+  const [selectedTargetCard, setSelectedTargetCard] = useState(null); // User-selected card to update
 
   // Load drafts on component mount and cleanup old ones
   useEffect(() => {
@@ -282,6 +284,8 @@ const Agent = ({addStory, addPart, stories }) => {
         }
 
         console.log("Extracted sections:", extractedSections);
+        console.log("Current outputFormat:", formData.outputFormat);
+        console.log("Sample section structure:", extractedSections[0]);
 
         if (extractedSections.length > 0) {
           // Apply existing images if in adapt mode and not regenerating
@@ -291,7 +295,28 @@ const Agent = ({addStory, addPart, stories }) => {
               image_gen: existingImages[index] || section.image_gen || ""
             }));
           }
+          console.log("Setting sections - final check:", extractedSections);
           setSections(extractedSections);
+          
+          // Auto-switch selectedLanguage to match generated content
+          if (extractedSections.length > 0 && partLanguages.length > 0) {
+            // Check which language has content in first section
+            const firstSection = extractedSections[0];
+            let languageWithContent = null;
+            
+            if (firstSection.heading?.te || firstSection.sectionText?.te || firstSection.oneLineText?.te) {
+              languageWithContent = 'te';
+            } else if (firstSection.heading?.en || firstSection.sectionText?.en || firstSection.oneLineText?.en) {
+              languageWithContent = 'en';
+            } else if (firstSection.heading?.hi || firstSection.sectionText?.hi || firstSection.oneLineText?.hi) {
+              languageWithContent = 'hi';
+            }
+            
+            if (languageWithContent && partLanguages.includes(languageWithContent)) {
+              console.log(`Auto-switching display language to: ${languageWithContent}`);
+              setSelectedLanguage(languageWithContent);
+            }
+          }
         } else {
           setError("No valid sections found in AI agent response");
         }
@@ -867,6 +892,56 @@ const Agent = ({addStory, addPart, stories }) => {
     }
   }, [selectedStoryData, selectedLanguage]);
 
+  // Load existing cards for target age group
+  useEffect(() => {
+    if (!selectedStoryData || !formData.targetAgeGroup) {
+      setExistingTargetCards([]);
+      setSelectedTargetCard(null);
+      return;
+    }
+
+    // Only for Child, Teen, Adult age groups
+    const ageGroupMap = {
+      '9-12': 'child',
+      '13-18': 'teen',
+      '18+': 'adult'
+    };
+    
+    const targetField = ageGroupMap[formData.targetAgeGroup];
+    if (!targetField) {
+      setExistingTargetCards([]);
+      setSelectedTargetCard(null);
+      return;
+    }
+
+    // Get existing cards for this age group
+    let cards = [];
+    if (targetField === 'adult') {
+      // Adult cards are in story.parts.card (not story.parts.adult.card)
+      cards = selectedStoryData.parts?.card || [];
+    } else {
+      // Child and Teen cards are in story.child.card and story.teen.card
+      cards = selectedStoryData[targetField]?.card || [];
+    }
+    
+    console.log(`Searching in '${targetField}' field, found ${cards.length} cards`);
+    
+    // Filter cards that have content
+    const validCards = cards.filter(card => {
+      return card.title && (card.title.en || card.title.te || card.title.hi);
+    });
+    
+    setExistingTargetCards(validCards);
+    console.log(`✅ Found ${validCards.length} valid cards for ${formData.targetAgeGroup} age group`);
+  }, [selectedStoryData, formData.targetAgeGroup]);
+
+  // Track which languages exist in the selected part (for locking logic)
+  const [selectedPartHasLanguages, setSelectedPartHasLanguages] = useState({
+    en: false,
+    te: false,
+    hi: false
+  });
+
   // Auto-populate title when only 1 part is selected in adapt mode (for specific age groups)
   useEffect(() => {
     if (contentMode === "adapt" && 
@@ -877,6 +952,13 @@ const Agent = ({addStory, addPart, stories }) => {
       const selectedPart = selectedStoryData.parts.card.find(part => part.id === selectedParts[0]);
       
       if (selectedPart && selectedPart.title) {
+        // Track which languages exist in the selected part
+        setSelectedPartHasLanguages({
+          en: !!selectedPart.title.en,
+          te: !!selectedPart.title.te,
+          hi: !!selectedPart.title.hi
+        });
+        
         // Auto-populate title in all available languages
         const newFormData = { ...formData };
         
@@ -897,6 +979,9 @@ const Agent = ({addStory, addPart, stories }) => {
         if (selectedPart.title.te) setValue("titleTe", selectedPart.title.te);
         if (selectedPart.title.hi) setValue("titleHi", selectedPart.title.hi);
       }
+    } else {
+      // Reset when not in adapt mode or no part selected
+      setSelectedPartHasLanguages({ en: false, te: false, hi: false });
     }
   }, [selectedParts, contentMode, formData.targetAgeGroup, selectedStoryData, setValue]);
 
@@ -987,10 +1072,17 @@ const Agent = ({addStory, addPart, stories }) => {
               {/* Auto-populated title message */}
               {contentMode === "adapt" && 
                selectedParts.length === 1 && 
-               ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup) && (
+               ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup) &&
+               (selectedPartHasLanguages.en || selectedPartHasLanguages.te || selectedPartHasLanguages.hi) && (
                 <div className="mb-4 p-3 bg-blue-900/30 border border-blue-500/50 rounded-lg">
                   <p className="text-sm text-blue-300">
-                    <span className="font-semibold">📝 Auto-populated:</span> Title has been automatically filled from the selected part and is locked for editing.
+                    <span className="font-semibold">📝 Auto-populated:</span> Title fields from selected part (
+                    {[
+                      selectedPartHasLanguages.en && "EN",
+                      selectedPartHasLanguages.te && "TE",
+                      selectedPartHasLanguages.hi && "HI"
+                    ].filter(Boolean).join(", ")}
+                    ) are locked. Empty fields can be edited.
                   </p>
                 </div>
               )}
@@ -1003,12 +1095,12 @@ const Agent = ({addStory, addPart, stories }) => {
                       <input
                         {...register("titleEn", { required: partLanguages.includes("en") ? "Title (English) is required" : false })}
                         className={`w-full p-3 pl-10 border rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                          (contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup))
+                          (contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup) && selectedPartHasLanguages.en)
                             ? "bg-gray-600 border-gray-500 cursor-not-allowed"
                             : "bg-gray-700 border-gray-600"
                         }`}
                         onChange={(e) => handleInputChange(e, "title", "en")}
-                        disabled={contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup)}
+                        disabled={contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup) && selectedPartHasLanguages.en}
                         value={formData.title?.en || ""}
                       />
                       {errors.titleEn && (
@@ -1074,12 +1166,12 @@ const Agent = ({addStory, addPart, stories }) => {
                       <input
                         {...register("titleTe", { required: partLanguages.includes("te") ? "Title (Telugu) is required" : false })}
                         className={`w-full p-3 pl-10 border rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                          (contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup))
+                          (contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup) && selectedPartHasLanguages.te)
                             ? "bg-gray-600 border-gray-500 cursor-not-allowed"
                             : "bg-gray-700 border-gray-600"
                         }`}
                         onChange={(e) => handleInputChange(e, "title", "te")}
-                        disabled={contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup)}
+                        disabled={contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup) && selectedPartHasLanguages.te}
                         value={formData.title?.te || ""}
                       />
                       {errors.titleTe && (
@@ -1145,12 +1237,12 @@ const Agent = ({addStory, addPart, stories }) => {
                       <input
                         {...register("titleHi", { required: partLanguages.includes("hi") ? "Title (Hindi) is required" : false })}
                         className={`w-full p-3 pl-10 border rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
-                          (contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup))
+                          (contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup) && selectedPartHasLanguages.hi)
                             ? "bg-gray-600 border-gray-500 cursor-not-allowed"
                             : "bg-gray-700 border-gray-600"
                         }`}
                         onChange={(e) => handleInputChange(e, "title", "hi")}
-                        disabled={contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup)}
+                        disabled={contentMode === "adapt" && selectedParts.length === 1 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup) && selectedPartHasLanguages.hi}
                         value={formData.title?.hi || ""}
                       />
                       {errors.titleHi && (
@@ -1472,7 +1564,6 @@ const Agent = ({addStory, addPart, stories }) => {
                     )}
                   </div>
                 )}
-
                 {/* Multi Mode: Age Group Selection */}
                 {contentMode === "multi" && (
                   <div className="mb-6 bg-gray-700 p-4 rounded-lg">
@@ -1580,6 +1671,105 @@ const Agent = ({addStory, addPart, stories }) => {
                 </div>
               )}
             </div>
+                  </div>
+                )}
+
+                {/* Existing Target Cards Section - Show for all modes when target age group is selected */}
+                {existingTargetCards.length > 0 && ['9-12', '13-18', '18+'].includes(formData.targetAgeGroup) && (
+                  <div className="mb-6 bg-purple-900/20 border border-purple-500/50 p-4 rounded-lg">
+                    <label className="block font-semibold text-purple-300 mb-3">
+                      📋 Existing {formData.targetAgeGroup === '9-12' ? 'Child' : formData.targetAgeGroup === '13-18' ? 'Teen' : 'Adult'} Cards in This Story
+                    </label>
+                    <p className="text-sm text-purple-200 mb-3">
+                      Found {existingTargetCards.length} existing card(s). Select one to add/update content, or leave unselected to create a new card.
+                    </p>
+                    
+                    <div className="space-y-3 max-h-60 overflow-y-auto">
+                      {/* Option to create new card */}
+                      <div
+                        onClick={() => setSelectedTargetCard(null)}
+                        className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                          !selectedTargetCard
+                            ? "border-purple-500 bg-purple-900/40"
+                            : "border-gray-600 bg-gray-800 hover:border-gray-500"
+                        }`}
+                      >
+                        <div className="flex items-center">
+                          <input
+                            type="radio"
+                            checked={!selectedTargetCard}
+                            onChange={() => {}}
+                            className="mr-3"
+                          />
+                          <div className="flex-1">
+                            <div className="font-semibold text-white">
+                              ✨ Create New Card
+                            </div>
+                            <div className="text-sm text-gray-400">
+                              Your generated content will be saved as a new card
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Existing cards */}
+                      {existingTargetCards.map((card) => {
+                        const hasEn = card.title?.en;
+                        const hasTe = card.title?.te;
+                        const hasHi = card.title?.hi;
+                        const existingSections = card.part?.length || 0;
+                        
+                        return (
+                          <div
+                            key={card.id}
+                            onClick={() => setSelectedTargetCard(card)}
+                            className={`p-3 rounded-lg border-2 cursor-pointer transition-all ${
+                              selectedTargetCard?.id === card.id
+                                ? "border-purple-500 bg-purple-900/40"
+                                : "border-gray-600 bg-gray-800 hover:border-gray-500"
+                            }`}
+                          >
+                            <div className="flex items-start">
+                              <input
+                                type="radio"
+                                checked={selectedTargetCard?.id === card.id}
+                                onChange={() => {}}
+                                className="mr-3 mt-1"
+                              />
+                              <div className="flex-1">
+                                <div className="font-semibold text-white mb-1">
+                                  📝 {card.title?.en || card.title?.te || card.title?.hi || "Untitled"}
+                                </div>
+                                <div className="text-xs text-gray-300 mb-1">
+                                  <span className="font-medium">Has Languages:</span>{" "}
+                                  {[
+                                    hasEn && "EN",
+                                    hasTe && "TE", 
+                                    hasHi && "HI"
+                                  ].filter(Boolean).join(", ")}
+                                  {" | "}
+                                  <span className="font-medium">Sections:</span> {existingSections}
+                                </div>
+                                <div className="text-xs text-purple-300">
+                                  💡 Will add/update your new language content to this card
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-3 p-3 bg-gray-700 rounded">
+                      <div className="font-semibold text-gray-300 mb-1">
+                        {selectedTargetCard ? "✓ Selected:" : "○ Creating New:"}
+                      </div>
+                      <div className="text-sm text-gray-400">
+                        {selectedTargetCard 
+                          ? `Your content will be merged into: "${selectedTargetCard.title?.en || selectedTargetCard.title?.te || selectedTargetCard.title?.hi}"`
+                          : "A new card will be created with your generated content"}
+                      </div>
+                    </div>
                   </div>
                 )}
               </>
@@ -1992,6 +2182,7 @@ const Agent = ({addStory, addPart, stories }) => {
             partLanguages={partLanguages}
             stories={stories}
             onSubmitStory={addPart}
+            selectedTargetCard={selectedTargetCard}
           />
         )}
 

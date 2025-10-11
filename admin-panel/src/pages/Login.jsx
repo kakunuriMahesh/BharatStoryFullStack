@@ -33,6 +33,7 @@ const Login = ({ setIsAuthenticated }) => {
   return (
     <div className="min-h-screen flex items-center justify-center bg-gray-100">
       <form onSubmit={handleSubmit} className="bg-white p-6 rounded shadow-lg w-96">
+        <p className='w-full text-center text-gray-400'>Bharat stories</p>
         <h2 className="text-2xl font-bold mb-4">Admin Login</h2>
         {error && <p className="text-red-500 mb-4">{error}</p>}
         <input

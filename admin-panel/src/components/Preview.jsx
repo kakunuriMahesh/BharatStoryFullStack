@@ -5,7 +5,7 @@ import { v4 as uuidv4 } from 'uuid';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
-const Preview = ({ sections, onClose, outputFormat, language, formData, selectedStory, partLanguages, stories, onSubmitStory }) => {
+const Preview = ({ sections, onClose, outputFormat, language, formData, selectedStory, partLanguages, stories, onSubmitStory, selectedTargetCard = null }) => {
   const [fontSize, setFontSize] = useState(16);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [voicesLoaded, setVoicesLoaded] = useState(false);
@@ -154,7 +154,54 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
 
   // Function to process a saved draft (can be called later)
   const processDraft = async (draftData) => {
-    console.log('Processing draft:', draftData.draftId);
+    console.log('=== PROCESSING DRAFT ===');
+    console.log('Draft ID:', draftData.draftId);
+    console.log('Existing Card ID:', draftData.existingCardId);
+    console.log('Target Age Group:', draftData.formData?.targetAgeGroup);
+    console.log('Has multiAgeSections?', !!draftData.multiAgeSections);
+    console.log('Story ID:', draftData.storyId);
+    
+    // Get the story to access existing card data if updating
+    const story = stories?.find(s => s.id === draftData.storyId);
+    console.log('Found story in stories array?', !!story);
+    
+    let existingCardToMerge = null;
+    
+    if (draftData.existingCardId && story) {
+      // Find the existing card in the story data
+      const ageGroupMap = {
+        '9-12': 'child',
+        '13-18': 'teen',
+        '18+': 'adult'
+      };
+      
+      const targetField = ageGroupMap[draftData.formData?.targetAgeGroup];
+      console.log('Target field to search:', targetField);
+      console.log('story.parts:', !!story.parts);
+      console.log('story[targetField]:', !!story[targetField]);
+      
+      if (targetField) {
+        let cards = [];
+        if (targetField === 'adult') {
+          // Adult cards are in story.parts.card
+          cards = story.parts?.card || [];
+        } else {
+          // Child and Teen cards are in story.child.card and story.teen.card
+          cards = story[targetField]?.card || [];
+        }
+        
+        console.log(`Available cards in '${targetField}':`, cards.length);
+        console.log('Card IDs:', cards.map(c => c.id));
+        existingCardToMerge = cards.find(c => c.id === draftData.existingCardId);
+        console.log('✅ Found existing card to merge:', existingCardToMerge ? existingCardToMerge.id : '❌ NOT FOUND');
+        if (existingCardToMerge) {
+          console.log('Existing card title:', existingCardToMerge.title);
+          console.log('Existing card sections:', existingCardToMerge.part?.length);
+        }
+      }
+    } else {
+      console.log('⚠️ Skipping merge - no existingCardId or story not found');
+    }
     
     // Handle multi-age submissions SEQUENTIALLY to avoid 504/500 errors
     if (draftData.multiAgeSections && Object.keys(draftData.multiAgeSections).length > 0) {
@@ -172,7 +219,7 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
         console.log(`[${i + 1}/${ageGroups.length}] Submitting ${ageGroup} content...`);
         
         // Convert sections to part format
-        const partData = ageSections.map((section) => ({
+        let partData = ageSections.map((section) => ({
           id: section.id || uuidv4(),
           heading: {
             en: section.heading?.en || '',
@@ -192,6 +239,65 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
           image: section.imageUrl || section.image_gen || ''
         }));
 
+        // MERGE with existing card if updating
+        let mergedFormData = { ...draftData.formData };
+        
+        if (existingCardToMerge) {
+          console.log('🔄 Merging draft data with existing card');
+          
+          // Helper to merge language objects
+          const mergeLangObj = (existing, newObj) => {
+            const merged = { ...existing };
+            Object.keys(newObj || {}).forEach(lang => {
+              if (newObj[lang] && newObj[lang].trim() !== '') {
+                merged[lang] = newObj[lang];
+              }
+            });
+            return merged;
+          };
+          
+          // Merge card-level fields
+          mergedFormData = {
+            ...draftData.formData,
+            title: mergeLangObj(existingCardToMerge.title || {}, draftData.formData.title || {}),
+            date: mergeLangObj(existingCardToMerge.date || {}, draftData.formData.date || {}),
+            description: mergeLangObj(existingCardToMerge.description || {}, draftData.formData.description || {}),
+            timeToRead: mergeLangObj(existingCardToMerge.timeToRead || {}, draftData.formData.timeToRead || {}),
+            storyType: mergeLangObj(existingCardToMerge.storyType || {}, draftData.formData.storyType || {}),
+          };
+          
+          // Merge section-level data - keep ALL sections (existing + new)
+          const maxSections = Math.max(partData.length, existingCardToMerge.part?.length || 0);
+          const mergedSections = [];
+          
+          for (let index = 0; index < maxSections; index++) {
+            const existingSection = existingCardToMerge.part?.[index];
+            const newSection = partData[index];
+            
+            if (existingSection && newSection) {
+              // Both exist - merge them
+              mergedSections.push({
+                id: existingSection.id,
+                heading: mergeLangObj(existingSection.heading || {}, newSection.heading || {}),
+                quote: mergeLangObj(existingSection.quote || {}, newSection.quote || {}),
+                text: mergeLangObj(existingSection.text || {}, newSection.text || {}),
+                image: newSection.image || existingSection.image,
+              });
+            } else if (existingSection) {
+              // Only existing - keep it
+              mergedSections.push(existingSection);
+            } else if (newSection) {
+              // Only new - add it
+              mergedSections.push(newSection);
+            }
+          }
+          
+          partData = mergedSections;
+          
+          console.log('✅ Merged formData:', mergedFormData);
+          console.log('✅ Merged partData sample:', partData[0]);
+        }
+
         // Map age groups to database fields
         const groupMap = {
           '18+': 'adult',
@@ -205,14 +311,20 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
         const submitData = new FormData();
         submitData.append('storyId', draftData.storyId);
         
-        // Add card details for each language
-        draftData.partLanguages.forEach(lang => {
+        // If updating existing card, use partId for update
+        if (draftData.existingCardId) {
+          submitData.append('partId', draftData.existingCardId);
+          console.log('🔄 FRONTEND (Draft Multi-Age): Updating existing card:', draftData.existingCardId);
+        }
+        
+        // Add card details for ALL languages (not just partLanguages)
+        ['en', 'te', 'hi'].forEach(lang => {
           const langKey = lang.charAt(0).toUpperCase() + lang.slice(1);
-          submitData.append(`title${langKey}`, draftData.formData.title[lang] || '');
-          submitData.append(`date${langKey}`, draftData.formData.date[lang] || '');
-          submitData.append(`description${langKey}`, draftData.formData.description[lang] || '');
-          submitData.append(`timeToRead${langKey}`, draftData.formData.timeToRead[lang] || '');
-          submitData.append(`storyType${langKey}`, draftData.formData.storyType[lang] || '');
+          submitData.append(`title${langKey}`, mergedFormData.title[lang] || '');
+          submitData.append(`date${langKey}`, mergedFormData.date[lang] || '');
+          submitData.append(`description${langKey}`, mergedFormData.description[lang] || '');
+          submitData.append(`timeToRead${langKey}`, mergedFormData.timeToRead[lang] || '');
+          submitData.append(`storyType${langKey}`, mergedFormData.storyType[lang] || '');
         });
         
         // Add thumbnail image
@@ -222,9 +334,9 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
           submitData.append('thumbnailImage', draftData.formData.thumbnailPreview);
         }
         
-        // Add part data for each language
+        // Add part data for ALL languages
         partData.forEach((part, index) => {
-          draftData.partLanguages.forEach(lang => {
+          ['en', 'te', 'hi'].forEach(lang => {
             const langKey = lang.charAt(0).toUpperCase() + lang.slice(1);
             submitData.append(`heading${langKey}${index}`, part.heading[lang] || '');
             submitData.append(`quote${langKey}${index}`, part.quote[lang] || '');
@@ -238,7 +350,7 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
           submitData.append(`id${index}`, part.id);
         });
         
-        submitData.append('languages', JSON.stringify(draftData.partLanguages));
+        submitData.append('languages', JSON.stringify(['en', 'te', 'hi']));
         
         // Add ageGroup parameter for routing - SIMPLE FIX
         console.log('Multi-age - ageGroup:', ageGroup, 'dbGroup:', dbGroup);
@@ -255,9 +367,9 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
         }
         
         // Debug: Log FormData contents
-        console.log('FormData contents for', ageGroup, ':');
+        console.log('📤 FormData contents for', ageGroup, ':');
         for (let [key, value] of submitData.entries()) {
-          console.log(key, ':', value);
+          console.log(`  ${key}:`, typeof value === 'string' && value.length > 50 ? value.substring(0, 50) + '...' : value);
         }
         
         // Wait for this submission to complete before proceeding to next
@@ -287,7 +399,7 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
     }
 
     // Single age group submission
-    const partData = draftData.sections.map((section, index) => ({
+    let partData = draftData.sections.map((section, index) => ({
       id: uuidv4(),
       heading: {
         en: section.heading?.en || '',
@@ -307,17 +419,82 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
       image: section.imageUrl || section.image_gen || ''
     }));
 
+    // MERGE with existing card if updating
+    let mergedFormData = { ...draftData.formData };
+    
+    if (existingCardToMerge) {
+      console.log('🔄 Merging single-age draft data with existing card');
+      
+      // Helper to merge language objects
+      const mergeLangObj = (existing, newObj) => {
+        const merged = { ...existing };
+        Object.keys(newObj || {}).forEach(lang => {
+          if (newObj[lang] && newObj[lang].trim() !== '') {
+            merged[lang] = newObj[lang];
+          }
+        });
+        return merged;
+      };
+      
+      // Merge card-level fields
+      mergedFormData = {
+        ...draftData.formData,
+        title: mergeLangObj(existingCardToMerge.title || {}, draftData.formData.title || {}),
+        date: mergeLangObj(existingCardToMerge.date || {}, draftData.formData.date || {}),
+        description: mergeLangObj(existingCardToMerge.description || {}, draftData.formData.description || {}),
+        timeToRead: mergeLangObj(existingCardToMerge.timeToRead || {}, draftData.formData.timeToRead || {}),
+        storyType: mergeLangObj(existingCardToMerge.storyType || {}, draftData.formData.storyType || {}),
+      };
+      
+      // Merge section-level data - keep ALL sections (existing + new)
+      const maxSections = Math.max(partData.length, existingCardToMerge.part?.length || 0);
+      const mergedSections = [];
+      
+      for (let index = 0; index < maxSections; index++) {
+        const existingSection = existingCardToMerge.part?.[index];
+        const newSection = partData[index];
+        
+        if (existingSection && newSection) {
+          // Both exist - merge them
+          mergedSections.push({
+            id: existingSection.id,
+            heading: mergeLangObj(existingSection.heading || {}, newSection.heading || {}),
+            quote: mergeLangObj(existingSection.quote || {}, newSection.quote || {}),
+            text: mergeLangObj(existingSection.text || {}, newSection.text || {}),
+            image: newSection.image || existingSection.image,
+          });
+        } else if (existingSection) {
+          // Only existing - keep it
+          mergedSections.push(existingSection);
+        } else if (newSection) {
+          // Only new - add it
+          mergedSections.push(newSection);
+        }
+      }
+      
+      partData = mergedSections;
+      
+      console.log('✅ Merged single-age formData:', mergedFormData);
+      console.log('✅ Merged single-age partData sample:', partData[0]);
+    }
+
     const submitData = new FormData();
     submitData.append('storyId', draftData.storyId);
     
-    // Add card details for each language
-    draftData.partLanguages.forEach(lang => {
+    // If updating existing card, use partId for update
+    if (draftData.existingCardId) {
+      submitData.append('partId', draftData.existingCardId);
+      console.log('🔄 FRONTEND (Draft Single-Age): Updating existing card:', draftData.existingCardId);
+    }
+    
+    // Add card details for ALL languages (not just partLanguages)
+    ['en', 'te', 'hi'].forEach(lang => {
       const langKey = lang.charAt(0).toUpperCase() + lang.slice(1);
-      submitData.append(`title${langKey}`, draftData.formData.title[lang] || '');
-      submitData.append(`date${langKey}`, draftData.formData.date[lang] || '');
-      submitData.append(`description${langKey}`, draftData.formData.description[lang] || '');
-      submitData.append(`timeToRead${langKey}`, draftData.formData.timeToRead[lang] || '');
-      submitData.append(`storyType${langKey}`, draftData.formData.storyType[lang] || '');
+      submitData.append(`title${langKey}`, mergedFormData.title[lang] || '');
+      submitData.append(`date${langKey}`, mergedFormData.date[lang] || '');
+      submitData.append(`description${langKey}`, mergedFormData.description[lang] || '');
+      submitData.append(`timeToRead${langKey}`, mergedFormData.timeToRead[lang] || '');
+      submitData.append(`storyType${langKey}`, mergedFormData.storyType[lang] || '');
     });
     
     // Add thumbnail image
@@ -327,9 +504,9 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
       submitData.append('thumbnailImage', draftData.formData.thumbnailPreview);
     }
     
-    // Add part data for each language
+    // Add part data for ALL languages
     partData.forEach((part, index) => {
-      draftData.partLanguages.forEach(lang => {
+      ['en', 'te', 'hi'].forEach(lang => {
         const langKey = lang.charAt(0).toUpperCase() + lang.slice(1);
         submitData.append(`heading${langKey}${index}`, part.heading[lang] || '');
         submitData.append(`quote${langKey}${index}`, part.quote[lang] || '');
@@ -344,7 +521,7 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
       submitData.append(`id${index}`, part.id);
     });
     
-    submitData.append('languages', JSON.stringify(draftData.partLanguages));
+    submitData.append('languages', JSON.stringify(['en', 'te', 'hi']));
     
     // Add ageGroup parameter for routing - SIMPLE FIX
     console.log('Single age - targetAgeGroup:', draftData.formData.targetAgeGroup);
@@ -372,6 +549,9 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
   };
 
   const handleSubmitStory = async () => {
+    console.log('=== SUBMIT STORY STARTED ===');
+    console.log('selectedTargetCard:', selectedTargetCard);
+    
     if (!selectedStory || !formData) {
       alert('Please select a story and ensure all required data is available.');
       return;
@@ -392,6 +572,7 @@ const Preview = ({ sections, onClose, outputFormat, language, formData, selected
       sections: sections,
       multiAgeSections: multiAgeSections,
       partLanguages: partLanguages,
+      existingCardId: selectedTargetCard?.id || null,
       timestamp: new Date().toISOString(),
       status: 'draft'
     };
@@ -625,14 +806,92 @@ if (isToddler || isKids) {
     const submitData = new FormData();
     submitData.append('storyId', story.id);
     
-    // Add card details for each language
-    partLanguages.forEach(lang => {
+    // Prepare merged data if updating existing card
+    let mergedFormData = { ...formData };
+    let mergedPartData = partData;
+    
+    if (selectedTargetCard) {
+      console.log('🔄 FRONTEND: Merging with existing card:', selectedTargetCard.id);
+      console.log('Existing card data:', selectedTargetCard);
+      console.log('New formData:', formData);
+      
+      // Helper function to merge language objects, only overwriting non-empty values
+      const mergeLangObj = (existing, newObj) => {
+        const merged = { ...existing };
+        Object.keys(newObj || {}).forEach(lang => {
+          if (newObj[lang] && newObj[lang].trim() !== '') {
+            merged[lang] = newObj[lang];
+          }
+        });
+        console.log('Merged lang object:', { existing, newObj, merged });
+        return merged;
+      };
+      
+      // Merge card-level fields (title, date, description, etc.)
+      mergedFormData = {
+        ...formData,
+        title: mergeLangObj(selectedTargetCard.title || {}, formData.title || {}),
+        date: mergeLangObj(selectedTargetCard.date || {}, formData.date || {}),
+        description: mergeLangObj(selectedTargetCard.description || {}, formData.description || {}),
+        timeToRead: mergeLangObj(selectedTargetCard.timeToRead || {}, formData.timeToRead || {}),
+        storyType: mergeLangObj(selectedTargetCard.storyType || {}, formData.storyType || {}),
+      };
+      
+      console.log('After card-level merge, mergedFormData:', mergedFormData);
+      
+      // Merge section-level data - keep ALL sections (existing + new)
+      const maxSections = Math.max(partData.length, selectedTargetCard.part?.length || 0);
+      const mergedSections = [];
+      
+      for (let index = 0; index < maxSections; index++) {
+        const existingSection = selectedTargetCard.part?.[index];
+        const newSection = partData[index];
+        
+        if (existingSection && newSection) {
+          // Both exist - merge them
+          console.log(`Merging section ${index}:`, { existing: existingSection, new: newSection });
+          mergedSections.push({
+            id: existingSection.id,
+            heading: mergeLangObj(existingSection.heading || {}, newSection.heading || {}),
+            quote: mergeLangObj(existingSection.quote || {}, newSection.quote || {}),
+            text: mergeLangObj(existingSection.text || {}, newSection.text || {}),
+            image: newSection.image || existingSection.image,
+          });
+        } else if (existingSection) {
+          // Only existing - keep it (preserves extra existing sections)
+          console.log(`Keeping existing section ${index} (no new content)`);
+          mergedSections.push(existingSection);
+        } else if (newSection) {
+          // Only new - add it (adds extra new sections)
+          console.log(`Adding new section ${index} (no existing content)`);
+          mergedSections.push(newSection);
+        }
+      }
+      
+      mergedPartData = mergedSections;
+      
+      // Use existing card ID as partId for update
+      submitData.append('partId', selectedTargetCard.id);
+      
+      console.log('✅ Merged data prepared:', {
+        cardId: selectedTargetCard.id,
+        existingSections: selectedTargetCard.part?.length || 0,
+        newSections: mergedPartData.length,
+        mergedTitle: mergedFormData.title,
+        sampleMergedSection: mergedPartData[0]
+      });
+    } else {
+      console.log('✨ Creating new card (no selectedTargetCard)');
+    }
+    
+    // Add card details for ALL languages (existing + new)
+    ['en', 'te', 'hi'].forEach(lang => {
       const langKey = lang.charAt(0).toUpperCase() + lang.slice(1);
-      submitData.append(`title${langKey}`, formData.title[lang] || '');
-      submitData.append(`date${langKey}`, formData.date[lang] || '');
-      submitData.append(`description${langKey}`, formData.description[lang] || '');
-      submitData.append(`timeToRead${langKey}`, formData.timeToRead[lang] || '');
-      submitData.append(`storyType${langKey}`, formData.storyType[lang] || '');
+      submitData.append(`title${langKey}`, mergedFormData.title[lang] || '');
+      submitData.append(`date${langKey}`, mergedFormData.date[lang] || '');
+      submitData.append(`description${langKey}`, mergedFormData.description[lang] || '');
+      submitData.append(`timeToRead${langKey}`, mergedFormData.timeToRead[lang] || '');
+      submitData.append(`storyType${langKey}`, mergedFormData.storyType[lang] || '');
     });
     
     // Add thumbnail image
@@ -644,9 +903,9 @@ if (isToddler || isKids) {
       submitData.append('thumbnailImage', formData.thumbnailPreview);
     }
     
-    // Add part data for each language
-    partData.forEach((part, index) => {
-      partLanguages.forEach(lang => {
+    // Add part data for ALL languages (existing + new)
+    mergedPartData.forEach((part, index) => {
+      ['en', 'te', 'hi'].forEach(lang => {
         const langKey = lang.charAt(0).toUpperCase() + lang.slice(1);
         submitData.append(`heading${langKey}${index}`, part.heading[lang] || '');
         submitData.append(`quote${langKey}${index}`, part.quote[lang] || '');
@@ -661,7 +920,15 @@ if (isToddler || isKids) {
       submitData.append(`id${index}`, part.id);
     });
     
-    submitData.append('languages', JSON.stringify(partLanguages));
+    // Send all languages that exist in merged data
+    const allLanguages = ['en', 'te', 'hi'];
+    submitData.append('languages', JSON.stringify(allLanguages));
+    
+    // Debug: Log what's being sent
+    console.log('📤 Final FormData being sent:');
+    for (let [key, value] of submitData.entries()) {
+      console.log(`  ${key}:`, value);
+    }
     
     // Add contentType and ageGroup parameters for clear validation
     if (formData.targetAgeGroup === '13-18') {
